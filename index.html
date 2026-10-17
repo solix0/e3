@@ -73,6 +73,7 @@
             border-radius: 16px; overflow: hidden; position: relative; height: 500px;
             display: flex; align-items: center; justify-content: center; background-color: #000; }
         video { width: 100%; height: 100%; object-fit: contain; display: block; }
+        video.mirrored { transform: scaleX(-1); }
 
         .video-placeholder { display: flex; flex-direction: column; align-items: center;
             justify-content: center; gap: 12px; color: var(--text-muted);
@@ -332,6 +333,9 @@
         <button id="btnSwitchCam" class="btn btn-sm" style="display:none;">
             <i class="fa-solid fa-camera-rotate"></i> <span>Switch</span>
         </button>
+        <button id="btnMirror" class="btn btn-sm" disabled title="Mirror preview">
+            <i class="fa-solid fa-arrows-left-right"></i> <span id="mirrorText">Mirror</span>
+        </button>
     </div>
 
     <div class="log-panel" id="logContainer">
@@ -434,6 +438,7 @@ let statsVisible = false;
 let forceRelayMode = false;
 let wakeLock = null;
 let batteryInfoText = 'Battery: N/A';
+let isMirrored = false;
 
 // Переменные для восстановления после сворачивания
 let wasHostActiveBeforeHidden = false;
@@ -497,6 +502,7 @@ document.addEventListener('visibilitychange', async () => {
                     remoteVideo.srcObject = localStream;
                     remoteVideo.play().catch(() => {});
                 }
+                applyMirrorState();
             }
         }
         
@@ -629,6 +635,7 @@ const customPinInput = $('customPinInput');
 const btnPlayPause = $('btnPlayPause');
 const iconPlayPause = $('iconPlayPause');
 const btnOpenInfo = $('btnOpenInfo');
+const btnMirror = $('btnMirror');
 
 if (btnOpenInfo) {
     btnOpenInfo.addEventListener('click', () => {
@@ -764,6 +771,37 @@ async function initBatteryWatcher(conn) {
     } catch (e) {}
 }
 
+// ============================================================
+// ЗЕРКАЛИРОВАНИЕ
+// ============================================================
+function applyMirrorState() {
+    // Зеркалим только локальное превью (когда показываем свою камеру)
+    // Не зеркалим входящий поток зрителя
+    const isLocalPreview = isHostMode && remoteVideo.srcObject === localStream;
+    if (isLocalPreview && isMirrored) {
+        remoteVideo.classList.add('mirrored');
+    } else {
+        remoteVideo.classList.remove('mirrored');
+    }
+    
+    if (btnMirror) {
+        btnMirror.classList.toggle('active', isMirrored);
+        const mirrorText = $('mirrorText');
+        if (mirrorText) mirrorText.textContent = isMirrored ? 'Mirrored' : 'Mirror';
+        const icon = btnMirror.querySelector('i');
+        if (icon) icon.className = 'fa-solid fa-arrows-left-right';
+    }
+}
+
+if (btnMirror) {
+    btnMirror.addEventListener('click', () => {
+        isMirrored = !isMirrored;
+        applyMirrorState();
+        log(isMirrored ? 'Preview mirrored' : 'Preview unmirrored', 'info');
+        toast(isMirrored ? 'Mirror: ON' : 'Mirror: OFF');
+    });
+}
+
 async function initLocalCamera(facingMode = 'user', preserveExisting = false) {
     if (!checkSecureContext()) return false;
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -807,6 +845,7 @@ async function initLocalCamera(facingMode = 'user', preserveExisting = false) {
         remoteVideo.style.display = 'block';
         remoteVideo.play().catch(e => {});
         remotePlaceholder.style.display = 'none';
+        applyMirrorState();
 
         isMicMuted = false;
         isCamStopped = false;
@@ -816,6 +855,7 @@ async function initLocalCamera(facingMode = 'user', preserveExisting = false) {
         btnToggleMic.disabled = false;
         btnToggleCam.disabled = false;
         btnSwitchCam.style.display = 'inline-flex';
+        if (btnMirror) btnMirror.disabled = false;
         currentFacingMode = facingMode;
 
         // Если мы host и есть активный call — заменяем треки (кроме случая preserveExisting,
@@ -985,6 +1025,7 @@ function showLocalInMain() {
     liveBadgeText.textContent = 'Your camera (host)';
     videoControls.style.display = 'flex';
     playOverlay.classList.remove('show');
+    applyMirrorState();
 }
 
 btnOpenConnect.addEventListener('click', () => {
@@ -1110,6 +1151,7 @@ function handleActiveCall(call) {
 
 function attachStreamToRemote(stream) {
     remoteVideo.srcObject = null;
+    remoteVideo.classList.remove('mirrored');  // удалённый поток НЕ зеркалим
     setTimeout(() => {
         remoteVideo.srcObject = stream;
         remoteVideo.style.display = 'block';
@@ -1123,6 +1165,7 @@ function stopRemoteStream() {
     pendingRemoteStream = null;
     remoteVideo.srcObject = null;
     remoteVideo.style.display = 'none';
+    remoteVideo.classList.remove('mirrored');  // сбрасываем зеркало
     remotePlaceholder.style.display = 'flex';
     liveBadge.style.display = 'none';
     videoControls.style.display = 'none';
