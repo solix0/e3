@@ -121,61 +121,26 @@
         .media-label { font-size: 12px; color: var(--text-muted); margin-right: auto; }
         
         .custom-pin-input { 
-            background: var(--bg); 
-            color: #fff; 
-            border: 1px solid var(--border); 
-            padding: 0; 
-            border-radius: 10px; 
-            width: 70px; 
-            height: 35px; 
-            text-align: center; 
-            font-size: 0.8rem; 
-            font-weight: 700;
-            outline: none; 
-            transition: border-color 0.2s, background 0.2s; 
+            background: var(--bg); color: #fff; border: 1px solid var(--border); 
+            padding: 0; border-radius: 10px; width: 70px; height: 35px; 
+            text-align: center; font-size: 0.8rem; font-weight: 700;
+            outline: none; transition: border-color 0.2s, background 0.2s; 
         }
         .custom-pin-input:focus, .custom-pin-input.has-value { 
-            border-color: #fff; 
-            background: var(--surface-hover); 
+            border-color: #fff; background: var(--surface-hover); 
         }
 
-.log-panel { 
-    background: var(--surface); 
-    border: 1px solid var(--border);
-    border-radius: 14px; 
-    padding: 14px; 
-    font-family: monospace;
-    font-size: 11px; 
-    color: var(--text-muted); 
-    height: 180px;
-    overflow-y: auto; 
-    display: flex; 
-    flex-direction: column; 
-    gap: 3px;
-    
-    scrollbar-width: thin;
-    scrollbar-color: var(--border) var(--bg);
-}
-
-.log-panel::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-}
-
-.log-panel::-webkit-scrollbar-track {
-    background: var(--bg);
-    border-radius: 8px;
-}
-
-.log-panel::-webkit-scrollbar-thumb {
-    background: var(--border);
-    border-radius: 8px;
-    border: 2px solid var(--bg);
-}
-
-.log-panel::-webkit-scrollbar-thumb:hover { 
-    background: var(--text-muted); 
-}
+        .log-panel { 
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 14px; padding: 14px; font-family: monospace;
+            font-size: 11px; color: var(--text-muted); height: 180px;
+            overflow-y: auto; display: flex; flex-direction: column; gap: 3px;
+            scrollbar-width: thin; scrollbar-color: var(--border) var(--bg);
+        }
+        .log-panel::-webkit-scrollbar { width: 8px; height: 8px; }
+        .log-panel::-webkit-scrollbar-track { background: var(--bg); border-radius: 8px; }
+        .log-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; border: 2px solid var(--bg); }
+        .log-panel::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
         .log-panel .log-error { color: #f44336; }
         .log-panel .log-ok { color: #4CAF50; }
         .log-panel .log-warn { color: #FFA726; }
@@ -259,7 +224,7 @@
     </header>
 
     <div id="insecureBanner" class="insecure-banner">
-        Not HTTPS/localhost — camera <b>will not start</b>. Deploy to <b>GitHub Pages / Vercel / Netlify</b>.
+        Not HTTPS/localhost — camera <b>will not start</b>. Deploy to <b>GitHub Pages / Vercel / Netlify</b>.[cite: 1]
     </div>
 
     <div class="action-bar">
@@ -284,7 +249,7 @@
     </div>
 
     <div class="video-card" id="videoCard">
-        <video id="remoteVideo" autoplay playsinline muted style="display:none;"></video>
+        <video id="remoteVideo" autoplay playsinline muted></video>
         <div id="remotePlaceholder" class="video-placeholder">
             <i class="fa-solid fa-desktop"></i>
             <p>Stream not connected</p>
@@ -599,10 +564,9 @@ function startStats() {
         if (!currentCall || !currentCall.peerConnection) return;
         try {
             const stats = await currentCall.peerConnection.getStats();
-            let inboundVideo = null, inboundAudio = null, candidatePair = null;
+            let inboundVideo = null, candidatePair = null;
             stats.forEach(r => {
                 if (r.type === 'inbound-rtp' && r.kind === 'video') inboundVideo = r;
-                if (r.type === 'inbound-rtp' && r.kind === 'audio') inboundAudio = r;
                 if (r.type === 'candidate-pair' && r.state === 'succeeded') candidatePair = r;
             });
             let html = '';
@@ -660,13 +624,7 @@ async function initLocalCamera(facingMode = 'user') {
         });
 
         if (localStream) {
-            const oldVideoTrack = localStream.getVideoTracks()[0];
-            const newVideoTrack = stream.getVideoTracks()[0];
-            const oldAudioTrack = localStream.getAudioTracks()[0];
-            const newAudioTrack = stream.getAudioTracks()[0];
-
-            if (oldVideoTrack && newVideoTrack) oldVideoTrack.stop();
-            if (oldAudioTrack && newAudioTrack) oldAudioTrack.stop();
+            localStream.getTracks().forEach(track => track.stop());
         }
 
         localStream = stream;
@@ -937,18 +895,24 @@ function handleActiveCall(call) {
     call.on('stream', (remoteStream) => {
         log('Remote media stream received', 'ok');
         pendingRemoteStream = remoteStream;
-        attachStreamToRemote(remoteStream);
+        
+        remoteVideo.srcObject = remoteStream;
+        remoteVideo.muted = false;
+        remoteVideo.style.display = 'block';
+
+        remoteVideo.play().then(() => {
+            playOverlay.classList.remove('show');
+            log('Remote video playing successfully', 'ok');
+        }).catch((e) => {
+            log('Autoplay blocked, showing overlay: ' + e.message, 'warn');
+            playOverlay.classList.add('show');
+        });
 
         remotePlaceholder.style.display = 'none';
         liveBadge.style.display = 'flex';
         liveBadgeText.textContent = 'Live';
         videoControls.style.display = 'flex';
         setStatus('online', 'Stream active');
-
-        const pp = remoteVideo.play();
-        if (pp && pp.catch) {
-            pp.catch(() => { playOverlay.classList.add('show'); });
-        }
 
         closeConnectModal();
         toast('Connection established!', 'success');
@@ -960,15 +924,6 @@ function handleActiveCall(call) {
         setStatus('offline', 'Connection lost');
         toast('Connection lost', 'error');
     });
-}
-
-function attachStreamToRemote(stream) {
-    remoteVideo.srcObject = null;
-    setTimeout(() => {
-        remoteVideo.srcObject = stream;
-        remoteVideo.style.display = 'block';
-        remoteVideo.play().catch(e => {});
-    }, 120);
 }
 
 function stopRemoteStream() {
@@ -1035,6 +990,7 @@ function closeQrScanner() {
 }
 
 function fillPinInputs(code) {
+    pinInputs.exceptions = true;
     pinInputs.forEach((input, i) => {
         input.value = code[i] || '';
         if (code[i]) input.classList.add('has-value');
