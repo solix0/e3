@@ -234,7 +234,6 @@
             to { opacity: 0; transform: translateY(-10px) scale(0.96); }
         }
 
-        /* Toggle switch для опции "Mirror stream for viewer" */
         .switch-row {
             display: flex; align-items: center; gap: 10px;
             padding: 8px 14px; background: var(--bg);
@@ -382,7 +381,7 @@
                 <b>1. Share Camera (Host):</b> Click "Share camera", grant camera permissions, and share the generated 4-digit PIN or QR code with the viewing device.
             </div>
             <div class="instruction-step">
-                <b>2. Connect to Camera (Viewer):</b> Click "Connect to camera", enter the 4-digit PIN or scan the host's QR code to view the live stream.
+                <b>2. Connect to Camera (Viewer):</b> Click "Connect to camera", enter the 4-digit PIN or scan the host's QR code to view the live stream. No camera required on viewer side.
             </div>
             <div class="instruction-step">
                 <b>3. Mirror options:</b> "Mirror" flips only <b>your local preview</b> (like a mirror). "Mirror for viewer" flips the <b>actual stream sent to the viewer</b> — useful for selfie-mode, but text and signs will appear reversed for the viewer.
@@ -455,7 +454,7 @@
 <script>
 let peer = null;
 let localStream = null;
-let outgoingStream = null; // поток, который реально отправляется зрителю (может быть зеркальным)
+let outgoingStream = null;
 let currentCall = null;
 let html5QrCode = null;
 let isMicMuted = false;
@@ -469,16 +468,14 @@ let statsVisible = false;
 let forceRelayMode = false;
 let wakeLock = null;
 let batteryInfoText = 'Battery: N/A';
-let isMirrored = false;           // зеркало локального превью
-let mirrorStreamForViewer = false; // зеркалить ли поток для зрителя
+let isMirrored = false;
+let mirrorStreamForViewer = false;
 
-// Canvas для зеркалирования исходящего потока
 let mirrorCanvas = null;
 let mirrorCtx = null;
 let mirrorVideoEl = null;
 let mirrorAnimFrame = null;
 
-// Переменные для восстановления после сворачивания
 let wasHostActiveBeforeHidden = false;
 let hostCode = null;
 let isReinitializing = false;
@@ -510,8 +507,39 @@ function releaseWakeLock() {
 }
 
 // ============================================================
-// ГЛАВНОЕ ИСПРАВЛЕНИЕ: восстановление камеры при возврате на вкладку
+// ГЛАВНЫЙ ФИКС: полная очистка host-состояния перед viewer-режимом
 // ============================================================
+function cleanupHostState() {
+    log('Cleaning up host session', 'warn');
+    if (currentCall) { try { currentCall.close(); } catch(e){} currentCall = null; }
+    if (localStream) {
+        localStream.getTracks().forEach(t => { try { t.stop(); } catch(e){} });
+        localStream = null;
+    }
+    if (peer) { try { peer.destroy(); } catch(e){} peer = null; }
+    outgoingStream = null;
+    stopMirrorPipeline();
+    stopTrackHealthWatch();
+    isHostMode = false;
+    remoteVideo.srcObject = null;
+    remoteVideo.style.display = 'none';
+    remoteVideo.classList.remove('mirrored');
+    remotePlaceholder.style.display = 'flex';
+    liveBadge.style.display = 'none';
+    videoControls.style.display = 'none';
+    playOverlay.classList.remove('show');
+    isMicMuted = false;
+    isCamStopped = false;
+    updateLocalMediaUI();
+    btnToggleMic.disabled = true;
+    btnToggleCam.disabled = true;
+    btnSwitchCam.style.display = 'none';
+    if (btnMirror) btnMirror.disabled = true;
+    applyMirrorState();
+    releaseWakeLock();
+    setStatus('', 'Waiting for action');
+}
+
 document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible') {
         log('App returned to foreground', 'info');
@@ -576,7 +604,6 @@ async function reinitializeCameraForHost() {
             return;
         }
         
-        // Пересоздаём исходящий поток (если включено зеркало для зрителя)
         rebuildOutgoingStream();
         
         if (currentCall && currentCall.peerConnection) {
@@ -625,9 +652,6 @@ function stopTrackHealthWatch() {
     }
 }
 
-// ============================================================
-// ЗЕРКАЛИРОВАНИЕ ИСХОДЯЩЕГО ПОТОКА (через canvas)
-// ============================================================
 function stopMirrorPipeline() {
     if (mirrorAnimFrame) {
         cancelAnimationFrame(mirrorAnimFrame);
@@ -684,7 +708,6 @@ function rebuildOutgoingStream() {
         return;
     }
     if (mirrorStreamForViewer) {
-        // Создаём/перезапускаем canvas-пайплайн
         startMirrorPipeline();
         if (!mirrorCanvas) return;
         const mirroredVideoStream = mirrorCanvas.captureStream(30);
@@ -877,9 +900,6 @@ async function initBatteryWatcher(conn) {
     } catch (e) {}
 }
 
-// ============================================================
-// ЗЕРКАЛИРОВАНИЕ ЛОКАЛЬНОГО ПРЕВЬЮ (CSS)
-// ============================================================
 function applyMirrorState() {
     const isLocalPreview = isHostMode && remoteVideo.srcObject === localStream;
     if (isLocalPreview && isMirrored) {
@@ -906,7 +926,6 @@ if (btnMirror) {
     });
 }
 
-// Обработчик для switch "Mirror for viewer"
 if (btnMirrorStream) {
     btnMirrorStream.addEventListener('click', async () => {
         mirrorStreamForViewer = !mirrorStreamForViewer;
@@ -916,10 +935,8 @@ if (btnMirrorStream) {
             : 'Mirror for viewer: OFF (original stream)', 'warn');
         toast(mirrorStreamForViewer ? 'Viewer Mirror: ON' : 'Viewer Mirror: OFF');
 
-        // Пересобираем исходящий поток
         rebuildOutgoingStream();
 
-        // Если есть активный вызов — заменяем треки
         if (currentCall && currentCall.peerConnection && outgoingStream) {
             try {
                 const pc = currentCall.peerConnection;
@@ -990,7 +1007,6 @@ async function initLocalCamera(facingMode = 'user', preserveExisting = false) {
         if (btnMirror) btnMirror.disabled = false;
         currentFacingMode = facingMode;
 
-        // Пересобираем исходящий поток (важно для mirror for viewer)
         rebuildOutgoingStream();
 
         if (!preserveExisting && isHostMode && currentCall?.peerConnection && outgoingStream) {
@@ -1077,6 +1093,11 @@ btnSwitchCam.addEventListener('click', async () => {
 });
 
 btnStartHost.addEventListener('click', async () => {
+    // Сначала очищаем любое предыдущее состояние
+    if (peer || currentCall || isHostMode) {
+        cleanupHostState();
+    }
+    
     const ready = await initLocalCamera(currentFacingMode);
     if (!ready) return;
 
@@ -1159,7 +1180,16 @@ function showLocalInMain() {
     applyMirrorState();
 }
 
+// ============================================================
+// VIEWER: открытие модалки с полной очисткой host-состояния
+// ============================================================
 btnOpenConnect.addEventListener('click', () => {
+    // Полный сброс если мы были хостом
+    if (isHostMode || localStream || peer || currentCall) {
+        log('Switching to viewer mode — cleaning up previous session', 'warn');
+        cleanupHostState();
+    }
+    
     $('connectModalOverlay').classList.add('active');
     clearPinInputs();
     requestWakeLock();
@@ -1197,16 +1227,28 @@ function checkPinComplete() {
     if (code.length === 4) connectToCameraHost(code);
 }
 
+// Надёжное создание dummy audio с таймаутом (без зависаний)
 async function createDummyAudioStream() {
-    if (dummyAudioCtx) { try { dummyAudioCtx.close(); } catch (e) {} }
-    dummyAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    if (dummyAudioCtx.state === 'suspended') await dummyAudioCtx.resume();
-    const osc = dummyAudioCtx.createOscillator();
-    const gain = dummyAudioCtx.createGain();
-    gain.gain.value = 0;
-    const dst = dummyAudioCtx.createMediaStreamDestination();
-    osc.connect(gain); gain.connect(dst); osc.start();
-    return dst.stream;
+    try {
+        if (dummyAudioCtx) { try { dummyAudioCtx.close(); } catch (e) {} }
+        dummyAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (dummyAudioCtx.state === 'suspended') {
+            // Пытаемся resume, но не ждём вечно
+            await Promise.race([
+                dummyAudioCtx.resume(),
+                new Promise(r => setTimeout(r, 500))
+            ]);
+        }
+        const osc = dummyAudioCtx.createOscillator();
+        const gain = dummyAudioCtx.createGain();
+        gain.gain.value = 0;
+        const dst = dummyAudioCtx.createMediaStreamDestination();
+        osc.connect(gain); gain.connect(dst); osc.start();
+        return dst.stream;
+    } catch (e) {
+        log('Dummy audio failed: ' + e.message + ' — using empty MediaStream instead', 'warn');
+        return null;
+    }
 }
 
 async function connectToCameraHost(code) {
@@ -1216,30 +1258,50 @@ async function connectToCameraHost(code) {
     log('Attempting to connect to host PIN: ' + code, 'info');
     isHostMode = false;
     const targetPeerId = 'cam-' + code;
-    if (peer) { try { peer.destroy(); } catch (e) {} }
+    if (peer) { try { peer.destroy(); } catch (e) {} peer = null; }
 
-    let viewerOutgoingStream;
-    try { viewerOutgoingStream = localStream || await createDummyAudioStream(); }
-    catch (e) { return; }
+    // Гарантируем, что у зрителя НЕТ своего localStream
+    if (localStream) {
+        log('Viewer had stray localStream — stopping it', 'warn');
+        localStream.getTracks().forEach(t => { try { t.stop(); } catch(e){} });
+        localStream = null;
+    }
+    outgoingStream = null;
+
+    // Создаём dummy audio или пустой MediaStream
+    let viewerOutgoingStream = null;
+    const dummy = await createDummyAudioStream();
+    viewerOutgoingStream = dummy || new MediaStream();
+    
+    const trackKinds = viewerOutgoingStream.getTracks().map(t => t.kind).join(',') || 'none';
+    log('Viewer outgoing stream tracks: ' + trackKinds, 'info');
 
     peer = new Peer(buildPeerOptions());
 
     peer.on('open', () => {
         log('Viewer peer opened successfully', 'ok');
+        
+        // Открываем data-канал для батареи
         const conn = peer.connect(targetPeerId);
-        conn.on('data', (data) => {
-            if (data.type === 'battery') {
-                batteryInfoText = `Battery: ${data.level}% ${data.charging ? 'charging' : ''}`;
-            }
-        });
-
-        let call = peer.call(targetPeerId, viewerOutgoingStream);
-        if (!call) { 
-            statusEl.innerText = 'Call failed'; 
-            log('Failed to initiate call to target', 'error');
-            return; 
+        if (conn) {
+            conn.on('data', (data) => {
+                if (data && data.type === 'battery') {
+                    batteryInfoText = `Battery: ${data.level}% ${data.charging ? 'charging' : ''}`;
+                }
+            });
+            conn.on('error', (e) => log('Data conn error: ' + e, 'warn'));
         }
-        handleActiveCall(call);
+
+        // Небольшая задержка, чтобы хост успел обработать data connection
+        setTimeout(() => {
+            let call = peer.call(targetPeerId, viewerOutgoingStream);
+            if (!call) { 
+                statusEl.innerText = 'Call failed'; 
+                log('Failed to initiate call to target', 'error');
+                return; 
+            }
+            handleActiveCall(call);
+        }, 300);
     });
 
     peer.on('error', (err) => {
@@ -1253,7 +1315,8 @@ function handleActiveCall(call) {
     currentCall = call;
 
     call.on('stream', (remoteStream) => {
-        log('Remote media stream received', 'ok');
+        const tracks = remoteStream.getTracks().map(t => t.kind + ':' + t.readyState).join(',');
+        log('Remote media stream received, tracks: ' + tracks, 'ok');
         pendingRemoteStream = remoteStream;
         attachStreamToRemote(remoteStream);
 
@@ -1277,6 +1340,11 @@ function handleActiveCall(call) {
         stopRemoteStream();
         setStatus('offline', 'Connection lost');
         toast('Connection lost', 'error');
+    });
+
+    // Диагностика ICE-ошибок
+    call.on('error', (err) => {
+        log('Call error: ' + err, 'error');
     });
 }
 
