@@ -73,7 +73,6 @@
             border-radius: 16px; overflow: hidden; position: relative; height: 500px;
             display: flex; align-items: center; justify-content: center; background-color: #000; }
         video { width: 100%; height: 100%; object-fit: contain; display: block; }
-        video.mirrored { transform: scaleX(-1); }
 
         .video-placeholder { display: flex; flex-direction: column; align-items: center;
             justify-content: center; gap: 12px; color: var(--text-muted);
@@ -234,28 +233,6 @@
             to { opacity: 0; transform: translateY(-10px) scale(0.96); }
         }
 
-        .switch-row {
-            display: flex; align-items: center; gap: 10px;
-            padding: 8px 14px; background: var(--bg);
-            border: 1px solid var(--border); border-radius: 10px;
-            cursor: pointer; user-select: none; transition: border-color 0.2s;
-        }
-        .switch-row:hover { border-color: #555; }
-        .switch-row.active { border-color: var(--accent); background: rgba(59,130,246,0.1); }
-        .switch-label { font-size: 12px; color: var(--text-muted); font-weight: 600; }
-        .switch-row.active .switch-label { color: var(--accent); }
-        .switch-track {
-            width: 34px; height: 18px; border-radius: 10px;
-            background: var(--border); position: relative; transition: background 0.2s;
-            flex-shrink: 0;
-        }
-        .switch-row.active .switch-track { background: var(--accent); }
-        .switch-knob {
-            width: 14px; height: 14px; border-radius: 50%; background: #fff;
-            position: absolute; top: 2px; left: 2px; transition: left 0.2s;
-        }
-        .switch-row.active .switch-knob { left: 18px; }
-
         @media (max-width: 600px) {
             .action-bar { grid-template-columns: 1fr; }
             .stats-panel { font-size: 10px; }
@@ -355,13 +332,6 @@
         <button id="btnSwitchCam" class="btn btn-sm" style="display:none;">
             <i class="fa-solid fa-camera-rotate"></i> <span>Switch</span>
         </button>
-        <button id="btnMirror" class="btn btn-sm" disabled title="Mirror local preview">
-            <i class="fa-solid fa-arrows-left-right"></i> <span id="mirrorText">Mirror</span>
-        </button>
-        <div id="btnMirrorStream" class="switch-row" title="Mirror the stream sent to viewer">
-            <div class="switch-track"><div class="switch-knob"></div></div>
-            <span class="switch-label">Mirror for viewer</span>
-        </div>
     </div>
 
     <div class="log-panel" id="logContainer">
@@ -381,13 +351,10 @@
                 <b>1. Share Camera (Host):</b> Click "Share camera", grant camera permissions, and share the generated 4-digit PIN or QR code with the viewing device.
             </div>
             <div class="instruction-step">
-                <b>2. Connect to Camera (Viewer):</b> Click "Connect to camera", enter the 4-digit PIN or scan the host's QR code to view the live stream. No camera required on viewer side.
+                <b>2. Connect to Camera (Viewer):</b> Click "Connect to camera", enter the 4-digit PIN or scan the host's QR code to view the live stream.
             </div>
             <div class="instruction-step">
-                <b>3. Mirror options:</b> "Mirror" flips only <b>your local preview</b> (like a mirror). "Mirror for viewer" flips the <b>actual stream sent to the viewer</b> — useful for selfie-mode, but text and signs will appear reversed for the viewer.
-            </div>
-            <div class="instruction-step">
-                <b>4. Connection Issues:</b> If direct connection fails due to network restrictions, try enabling <b>Relay mode</b> on both devices.
+                <b>3. Connection Issues:</b> If direct connection fails due to network restrictions, try enabling <b>Relay mode</b> on both devices.
             </div>
 
             <div class="disclaimer-box">
@@ -454,7 +421,6 @@
 <script>
 let peer = null;
 let localStream = null;
-let outgoingStream = null;
 let currentCall = null;
 let html5QrCode = null;
 let isMicMuted = false;
@@ -468,14 +434,8 @@ let statsVisible = false;
 let forceRelayMode = false;
 let wakeLock = null;
 let batteryInfoText = 'Battery: N/A';
-let isMirrored = false;
-let mirrorStreamForViewer = false;
 
-let mirrorCanvas = null;
-let mirrorCtx = null;
-let mirrorVideoEl = null;
-let mirrorAnimFrame = null;
-
+// Переменные для восстановления после сворачивания
 let wasHostActiveBeforeHidden = false;
 let hostCode = null;
 let isReinitializing = false;
@@ -507,48 +467,19 @@ function releaseWakeLock() {
 }
 
 // ============================================================
-// ГЛАВНЫЙ ФИКС: полная очистка host-состояния перед viewer-режимом
+// ГЛАВНОЕ ИСПРАВЛЕНИЕ: восстановление камеры при возврате на вкладку
 // ============================================================
-function cleanupHostState() {
-    log('Cleaning up host session', 'warn');
-    if (currentCall) { try { currentCall.close(); } catch(e){} currentCall = null; }
-    if (localStream) {
-        localStream.getTracks().forEach(t => { try { t.stop(); } catch(e){} });
-        localStream = null;
-    }
-    if (peer) { try { peer.destroy(); } catch(e){} peer = null; }
-    outgoingStream = null;
-    stopMirrorPipeline();
-    stopTrackHealthWatch();
-    isHostMode = false;
-    remoteVideo.srcObject = null;
-    remoteVideo.style.display = 'none';
-    remoteVideo.classList.remove('mirrored');
-    remotePlaceholder.style.display = 'flex';
-    liveBadge.style.display = 'none';
-    videoControls.style.display = 'none';
-    playOverlay.classList.remove('show');
-    isMicMuted = false;
-    isCamStopped = false;
-    updateLocalMediaUI();
-    btnToggleMic.disabled = true;
-    btnToggleCam.disabled = true;
-    btnSwitchCam.style.display = 'none';
-    if (btnMirror) btnMirror.disabled = true;
-    applyMirrorState();
-    releaseWakeLock();
-    setStatus('', 'Waiting for action');
-}
-
 document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible') {
         log('App returned to foreground', 'info');
         
+        // 1. Восстанавливаем WakeLock
         if (isHostMode || currentCall) {
-            wakeLock = null;
+            wakeLock = null; // сбрасываем, т.к. браузер его уже релизнул
             await requestWakeLock();
         }
         
+        // 2. Проверяем здоровье локальных треков (если мы host)
         if (localStream && isHostMode) {
             const vTrack = localStream.getVideoTracks()[0];
             const aTrack = localStream.getAudioTracks()[0];
@@ -561,14 +492,15 @@ document.addEventListener('visibilitychange', async () => {
                 await reinitializeCameraForHost();
             } else {
                 log('Local tracks still alive', 'ok');
+                // Обновляем srcObject на случай, если браузер его сбросил
                 if (remoteVideo.srcObject !== localStream) {
                     remoteVideo.srcObject = localStream;
                     remoteVideo.play().catch(() => {});
                 }
-                applyMirrorState();
             }
         }
         
+        // 3. Если мы viewer и соединение отвалилось — сообщаем
         if (!isHostMode && currentCall) {
             const pc = currentCall.peerConnection;
             if (pc && (pc.connectionState === 'disconnected' || pc.connectionState === 'failed')) {
@@ -576,6 +508,7 @@ document.addEventListener('visibilitychange', async () => {
                 toast('Connection lost. Reconnect required.', 'error');
                 setStatus('error', 'Reconnect needed');
             } else if (pendingRemoteStream) {
+                // Перезапускаем видео если оно остановилось
                 if (remoteVideo.srcObject !== pendingRemoteStream) {
                     remoteVideo.srcObject = pendingRemoteStream;
                 }
@@ -587,11 +520,13 @@ document.addEventListener('visibilitychange', async () => {
             }
         }
     } else {
+        // Уходим в фон — фиксируем состояние
         wasHostActiveBeforeHidden = isHostMode;
         log('App went to background', 'warn');
     }
 });
 
+// Полная переинициализация камеры для host с сохранением соединения
 async function reinitializeCameraForHost() {
     if (isReinitializing) return;
     isReinitializing = true;
@@ -604,21 +539,21 @@ async function reinitializeCameraForHost() {
             return;
         }
         
-        rebuildOutgoingStream();
-        
+        // Если есть активный call — заменяем треки
         if (currentCall && currentCall.peerConnection) {
             const pc = currentCall.peerConnection;
             const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
             const audioSender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
-            if (videoSender && outgoingStream?.getVideoTracks()[0]) {
-                await videoSender.replaceTrack(outgoingStream.getVideoTracks()[0]);
+            if (videoSender && localStream.getVideoTracks()[0]) {
+                await videoSender.replaceTrack(localStream.getVideoTracks()[0]);
             }
-            if (audioSender && outgoingStream?.getAudioTracks()[0]) {
-                await audioSender.replaceTrack(outgoingStream.getAudioTracks()[0]);
+            if (audioSender && localStream.getAudioTracks()[0]) {
+                await audioSender.replaceTrack(localStream.getAudioTracks()[0]);
             }
             log('Track replacements sent to viewer', 'ok');
         }
         
+        // Останавливаем старые треки
         if (oldStream) {
             oldStream.getTracks().forEach(t => { try { t.stop(); } catch(e){} });
         }
@@ -630,6 +565,7 @@ async function reinitializeCameraForHost() {
     }
 }
 
+// Следим за здоровьем треков — если браузер их убил, переинициализируем
 function watchTrackHealth() {
     if (trackHealthInterval) clearInterval(trackHealthInterval);
     trackHealthInterval = setInterval(async () => {
@@ -650,76 +586,6 @@ function stopTrackHealthWatch() {
         clearInterval(trackHealthInterval);
         trackHealthInterval = null;
     }
-}
-
-function stopMirrorPipeline() {
-    if (mirrorAnimFrame) {
-        cancelAnimationFrame(mirrorAnimFrame);
-        mirrorAnimFrame = null;
-    }
-    if (mirrorVideoEl) {
-        try { mirrorVideoEl.pause(); } catch(e) {}
-        mirrorVideoEl.srcObject = null;
-        mirrorVideoEl = null;
-    }
-    if (mirrorCanvas) {
-        mirrorCanvas = null;
-        mirrorCtx = null;
-    }
-}
-
-function startMirrorPipeline() {
-    stopMirrorPipeline();
-    if (!localStream) return;
-
-    mirrorVideoEl = document.createElement('video');
-    mirrorVideoEl.srcObject = localStream;
-    mirrorVideoEl.muted = true;
-    mirrorVideoEl.playsInline = true;
-
-    mirrorCanvas = document.createElement('canvas');
-    mirrorCtx = mirrorCanvas.getContext('2d');
-
-    const draw = () => {
-        if (!mirrorVideoEl || !mirrorCtx || !mirrorCanvas) return;
-        const vw = mirrorVideoEl.videoWidth || 1280;
-        const vh = mirrorVideoEl.videoHeight || 720;
-        if (mirrorCanvas.width !== vw) mirrorCanvas.width = vw;
-        if (mirrorCanvas.height !== vh) mirrorCanvas.height = vh;
-        mirrorCtx.save();
-        mirrorCtx.scale(-1, 1);
-        mirrorCtx.drawImage(mirrorVideoEl, -vw, 0, vw, vh);
-        mirrorCtx.restore();
-        mirrorAnimFrame = requestAnimationFrame(draw);
-    };
-
-    mirrorVideoEl.addEventListener('loadedmetadata', () => {
-        draw();
-    });
-    mirrorVideoEl.addEventListener('play', () => {
-        draw();
-    });
-    mirrorVideoEl.play().catch(() => {});
-}
-
-function rebuildOutgoingStream() {
-    if (!localStream) {
-        outgoingStream = null;
-        return;
-    }
-    if (mirrorStreamForViewer) {
-        startMirrorPipeline();
-        if (!mirrorCanvas) return;
-        const mirroredVideoStream = mirrorCanvas.captureStream(30);
-        const combined = new MediaStream();
-        mirroredVideoStream.getVideoTracks().forEach(t => combined.addTrack(t));
-        localStream.getAudioTracks().forEach(t => combined.addTrack(t));
-        outgoingStream = combined;
-    } else {
-        stopMirrorPipeline();
-        outgoingStream = localStream;
-    }
-    log('Outgoing stream: ' + (mirrorStreamForViewer ? 'mirrored (canvas)' : 'original'), 'info');
 }
 
 const TURN_SERVERS = [
@@ -763,8 +629,6 @@ const customPinInput = $('customPinInput');
 const btnPlayPause = $('btnPlayPause');
 const iconPlayPause = $('iconPlayPause');
 const btnOpenInfo = $('btnOpenInfo');
-const btnMirror = $('btnMirror');
-const btnMirrorStream = $('btnMirrorStream');
 
 if (btnOpenInfo) {
     btnOpenInfo.addEventListener('click', () => {
@@ -900,58 +764,6 @@ async function initBatteryWatcher(conn) {
     } catch (e) {}
 }
 
-function applyMirrorState() {
-    const isLocalPreview = isHostMode && remoteVideo.srcObject === localStream;
-    if (isLocalPreview && isMirrored) {
-        remoteVideo.classList.add('mirrored');
-    } else {
-        remoteVideo.classList.remove('mirrored');
-    }
-    
-    if (btnMirror) {
-        btnMirror.classList.toggle('active', isMirrored);
-        const mirrorText = $('mirrorText');
-        if (mirrorText) mirrorText.textContent = isMirrored ? 'Mirrored' : 'Mirror';
-        const icon = btnMirror.querySelector('i');
-        if (icon) icon.className = 'fa-solid fa-arrows-left-right';
-    }
-}
-
-if (btnMirror) {
-    btnMirror.addEventListener('click', () => {
-        isMirrored = !isMirrored;
-        applyMirrorState();
-        log(isMirrored ? 'Local preview mirrored' : 'Local preview unmirrored', 'info');
-        toast(isMirrored ? 'Preview Mirror: ON' : 'Preview Mirror: OFF');
-    });
-}
-
-if (btnMirrorStream) {
-    btnMirrorStream.addEventListener('click', async () => {
-        mirrorStreamForViewer = !mirrorStreamForViewer;
-        btnMirrorStream.classList.toggle('active', mirrorStreamForViewer);
-        log(mirrorStreamForViewer
-            ? 'Mirror for viewer: ON (stream will be flipped via canvas)'
-            : 'Mirror for viewer: OFF (original stream)', 'warn');
-        toast(mirrorStreamForViewer ? 'Viewer Mirror: ON' : 'Viewer Mirror: OFF');
-
-        rebuildOutgoingStream();
-
-        if (currentCall && currentCall.peerConnection && outgoingStream) {
-            try {
-                const pc = currentCall.peerConnection;
-                const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
-                if (videoSender && outgoingStream.getVideoTracks()[0]) {
-                    await videoSender.replaceTrack(outgoingStream.getVideoTracks()[0]);
-                    log('Viewer stream updated', 'ok');
-                }
-            } catch (e) {
-                log('Failed to update viewer track: ' + e.message, 'error');
-            }
-        }
-    });
-}
-
 async function initLocalCamera(facingMode = 'user', preserveExisting = false) {
     if (!checkSecureContext()) return false;
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -972,6 +784,7 @@ async function initLocalCamera(facingMode = 'user', preserveExisting = false) {
             audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
         });
 
+        // Останавливаем старые треки (кроме случая preserveExisting — тогда мы остановим их позже, после replaceTrack)
         if (localStream && !preserveExisting) {
             const oldVideoTrack = localStream.getVideoTracks()[0];
             const newVideoTrack = stream.getVideoTracks()[0];
@@ -994,7 +807,6 @@ async function initLocalCamera(facingMode = 'user', preserveExisting = false) {
         remoteVideo.style.display = 'block';
         remoteVideo.play().catch(e => {});
         remotePlaceholder.style.display = 'none';
-        applyMirrorState();
 
         isMicMuted = false;
         isCamStopped = false;
@@ -1004,19 +816,19 @@ async function initLocalCamera(facingMode = 'user', preserveExisting = false) {
         btnToggleMic.disabled = false;
         btnToggleCam.disabled = false;
         btnSwitchCam.style.display = 'inline-flex';
-        if (btnMirror) btnMirror.disabled = false;
         currentFacingMode = facingMode;
 
-        rebuildOutgoingStream();
-
-        if (!preserveExisting && isHostMode && currentCall?.peerConnection && outgoingStream) {
+        // Если мы host и есть активный call — заменяем треки (кроме случая preserveExisting,
+        // когда это уже сделает reinitializeCameraForHost)
+        if (!preserveExisting && isHostMode && currentCall?.peerConnection) {
             const pc = currentCall.peerConnection;
             const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
             const audioSender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
-            if (videoSender && outgoingStream.getVideoTracks()[0]) await videoSender.replaceTrack(outgoingStream.getVideoTracks()[0]);
-            if (audioSender && outgoingStream.getAudioTracks()[0]) await audioSender.replaceTrack(outgoingStream.getAudioTracks()[0]);
+            if (videoSender && vTracks[0]) await videoSender.replaceTrack(vTracks[0]);
+            if (audioSender && stream.getAudioTracks()[0]) await audioSender.replaceTrack(stream.getAudioTracks()[0]);
         }
 
+        // Навешиваем onended на треки, чтобы ловить смерть треков
         stream.getTracks().forEach(track => {
             track.addEventListener('ended', () => {
                 log('Track ended: ' + track.kind, 'warn');
@@ -1093,11 +905,6 @@ btnSwitchCam.addEventListener('click', async () => {
 });
 
 btnStartHost.addEventListener('click', async () => {
-    // Сначала очищаем любое предыдущее состояние
-    if (peer || currentCall || isHostMode) {
-        cleanupHostState();
-    }
-    
     const ready = await initLocalCamera(currentFacingMode);
     if (!ready) return;
 
@@ -1123,6 +930,7 @@ btnStartHost.addEventListener('click', async () => {
         const qrEl = $('qrcodeDisplay'); qrEl.innerHTML = '';
         try { new QRCode(qrEl, { text: code, width: 160, height: 160 }); } catch (e) {}
         $('hostModalOverlay').classList.add('active');
+        // Запускаем слежение за треками
         watchTrackHealth();
     });
 
@@ -1134,14 +942,14 @@ btnStartHost.addEventListener('click', async () => {
     peer.on('call', (call) => {
         try {
             log('Incoming call received, answering...', 'info');
+            // Гарантируем, что у нас живой поток
             if (!localStream || localStream.getVideoTracks()[0]?.readyState === 'ended') {
                 log('Stream dead at call time — reinitializing before answer', 'warn');
                 initLocalCamera(currentFacingMode).then(() => {
-                    rebuildOutgoingStream();
-                    call.answer(outgoingStream || localStream);
+                    call.answer(localStream);
                 });
             } else {
-                call.answer(outgoingStream || localStream);
+                call.answer(localStream);
             }
             currentCall = call;
             call.on('close', () => {
@@ -1177,19 +985,9 @@ function showLocalInMain() {
     liveBadgeText.textContent = 'Your camera (host)';
     videoControls.style.display = 'flex';
     playOverlay.classList.remove('show');
-    applyMirrorState();
 }
 
-// ============================================================
-// VIEWER: открытие модалки с полной очисткой host-состояния
-// ============================================================
 btnOpenConnect.addEventListener('click', () => {
-    // Полный сброс если мы были хостом
-    if (isHostMode || localStream || peer || currentCall) {
-        log('Switching to viewer mode — cleaning up previous session', 'warn');
-        cleanupHostState();
-    }
-    
     $('connectModalOverlay').classList.add('active');
     clearPinInputs();
     requestWakeLock();
@@ -1227,28 +1025,16 @@ function checkPinComplete() {
     if (code.length === 4) connectToCameraHost(code);
 }
 
-// Надёжное создание dummy audio с таймаутом (без зависаний)
 async function createDummyAudioStream() {
-    try {
-        if (dummyAudioCtx) { try { dummyAudioCtx.close(); } catch (e) {} }
-        dummyAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        if (dummyAudioCtx.state === 'suspended') {
-            // Пытаемся resume, но не ждём вечно
-            await Promise.race([
-                dummyAudioCtx.resume(),
-                new Promise(r => setTimeout(r, 500))
-            ]);
-        }
-        const osc = dummyAudioCtx.createOscillator();
-        const gain = dummyAudioCtx.createGain();
-        gain.gain.value = 0;
-        const dst = dummyAudioCtx.createMediaStreamDestination();
-        osc.connect(gain); gain.connect(dst); osc.start();
-        return dst.stream;
-    } catch (e) {
-        log('Dummy audio failed: ' + e.message + ' — using empty MediaStream instead', 'warn');
-        return null;
-    }
+    if (dummyAudioCtx) { try { dummyAudioCtx.close(); } catch (e) {} }
+    dummyAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (dummyAudioCtx.state === 'suspended') await dummyAudioCtx.resume();
+    const osc = dummyAudioCtx.createOscillator();
+    const gain = dummyAudioCtx.createGain();
+    gain.gain.value = 0;
+    const dst = dummyAudioCtx.createMediaStreamDestination();
+    osc.connect(gain); gain.connect(dst); osc.start();
+    return dst.stream;
 }
 
 async function connectToCameraHost(code) {
@@ -1258,50 +1044,30 @@ async function connectToCameraHost(code) {
     log('Attempting to connect to host PIN: ' + code, 'info');
     isHostMode = false;
     const targetPeerId = 'cam-' + code;
-    if (peer) { try { peer.destroy(); } catch (e) {} peer = null; }
+    if (peer) { try { peer.destroy(); } catch (e) {} }
 
-    // Гарантируем, что у зрителя НЕТ своего localStream
-    if (localStream) {
-        log('Viewer had stray localStream — stopping it', 'warn');
-        localStream.getTracks().forEach(t => { try { t.stop(); } catch(e){} });
-        localStream = null;
-    }
-    outgoingStream = null;
-
-    // Создаём dummy audio или пустой MediaStream
-    let viewerOutgoingStream = null;
-    const dummy = await createDummyAudioStream();
-    viewerOutgoingStream = dummy || new MediaStream();
-    
-    const trackKinds = viewerOutgoingStream.getTracks().map(t => t.kind).join(',') || 'none';
-    log('Viewer outgoing stream tracks: ' + trackKinds, 'info');
+    let outgoingStream;
+    try { outgoingStream = localStream || await createDummyAudioStream(); }
+    catch (e) { return; }
 
     peer = new Peer(buildPeerOptions());
 
     peer.on('open', () => {
         log('Viewer peer opened successfully', 'ok');
-        
-        // Открываем data-канал для батареи
         const conn = peer.connect(targetPeerId);
-        if (conn) {
-            conn.on('data', (data) => {
-                if (data && data.type === 'battery') {
-                    batteryInfoText = `Battery: ${data.level}% ${data.charging ? 'charging' : ''}`;
-                }
-            });
-            conn.on('error', (e) => log('Data conn error: ' + e, 'warn'));
-        }
-
-        // Небольшая задержка, чтобы хост успел обработать data connection
-        setTimeout(() => {
-            let call = peer.call(targetPeerId, viewerOutgoingStream);
-            if (!call) { 
-                statusEl.innerText = 'Call failed'; 
-                log('Failed to initiate call to target', 'error');
-                return; 
+        conn.on('data', (data) => {
+            if (data.type === 'battery') {
+                batteryInfoText = `Battery: ${data.level}% ${data.charging ? 'charging' : ''}`;
             }
-            handleActiveCall(call);
-        }, 300);
+        });
+
+        let call = peer.call(targetPeerId, outgoingStream);
+        if (!call) { 
+            statusEl.innerText = 'Call failed'; 
+            log('Failed to initiate call to target', 'error');
+            return; 
+        }
+        handleActiveCall(call);
     });
 
     peer.on('error', (err) => {
@@ -1315,8 +1081,7 @@ function handleActiveCall(call) {
     currentCall = call;
 
     call.on('stream', (remoteStream) => {
-        const tracks = remoteStream.getTracks().map(t => t.kind + ':' + t.readyState).join(',');
-        log('Remote media stream received, tracks: ' + tracks, 'ok');
+        log('Remote media stream received', 'ok');
         pendingRemoteStream = remoteStream;
         attachStreamToRemote(remoteStream);
 
@@ -1341,16 +1106,10 @@ function handleActiveCall(call) {
         setStatus('offline', 'Connection lost');
         toast('Connection lost', 'error');
     });
-
-    // Диагностика ICE-ошибок
-    call.on('error', (err) => {
-        log('Call error: ' + err, 'error');
-    });
 }
 
 function attachStreamToRemote(stream) {
     remoteVideo.srcObject = null;
-    remoteVideo.classList.remove('mirrored');
     setTimeout(() => {
         remoteVideo.srcObject = stream;
         remoteVideo.style.display = 'block';
@@ -1364,14 +1123,12 @@ function stopRemoteStream() {
     pendingRemoteStream = null;
     remoteVideo.srcObject = null;
     remoteVideo.style.display = 'none';
-    remoteVideo.classList.remove('mirrored');
     remotePlaceholder.style.display = 'flex';
     liveBadge.style.display = 'none';
     videoControls.style.display = 'none';
     playOverlay.classList.remove('show');
     stopStats();
     stopTrackHealthWatch();
-    stopMirrorPipeline();
     if (dummyAudioCtx) { try { dummyAudioCtx.close(); } catch (e) {} dummyAudioCtx = null; }
     releaseWakeLock();
     setStatus('', 'Waiting for action');
