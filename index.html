@@ -234,6 +234,29 @@
             to { opacity: 0; transform: translateY(-10px) scale(0.96); }
         }
 
+        /* Toggle switch для опции "Mirror stream for viewer" */
+        .switch-row {
+            display: flex; align-items: center; gap: 10px;
+            padding: 8px 14px; background: var(--bg);
+            border: 1px solid var(--border); border-radius: 10px;
+            cursor: pointer; user-select: none; transition: border-color 0.2s;
+        }
+        .switch-row:hover { border-color: #555; }
+        .switch-row.active { border-color: var(--accent); background: rgba(59,130,246,0.1); }
+        .switch-label { font-size: 12px; color: var(--text-muted); font-weight: 600; }
+        .switch-row.active .switch-label { color: var(--accent); }
+        .switch-track {
+            width: 34px; height: 18px; border-radius: 10px;
+            background: var(--border); position: relative; transition: background 0.2s;
+            flex-shrink: 0;
+        }
+        .switch-row.active .switch-track { background: var(--accent); }
+        .switch-knob {
+            width: 14px; height: 14px; border-radius: 50%; background: #fff;
+            position: absolute; top: 2px; left: 2px; transition: left 0.2s;
+        }
+        .switch-row.active .switch-knob { left: 18px; }
+
         @media (max-width: 600px) {
             .action-bar { grid-template-columns: 1fr; }
             .stats-panel { font-size: 10px; }
@@ -333,9 +356,13 @@
         <button id="btnSwitchCam" class="btn btn-sm" style="display:none;">
             <i class="fa-solid fa-camera-rotate"></i> <span>Switch</span>
         </button>
-        <button id="btnMirror" class="btn btn-sm" disabled title="Mirror preview">
+        <button id="btnMirror" class="btn btn-sm" disabled title="Mirror local preview">
             <i class="fa-solid fa-arrows-left-right"></i> <span id="mirrorText">Mirror</span>
         </button>
+        <div id="btnMirrorStream" class="switch-row" title="Mirror the stream sent to viewer">
+            <div class="switch-track"><div class="switch-knob"></div></div>
+            <span class="switch-label">Mirror for viewer</span>
+        </div>
     </div>
 
     <div class="log-panel" id="logContainer">
@@ -358,7 +385,10 @@
                 <b>2. Connect to Camera (Viewer):</b> Click "Connect to camera", enter the 4-digit PIN or scan the host's QR code to view the live stream.
             </div>
             <div class="instruction-step">
-                <b>3. Connection Issues:</b> If direct connection fails due to network restrictions, try enabling <b>Relay mode</b> on both devices.
+                <b>3. Mirror options:</b> "Mirror" flips only <b>your local preview</b> (like a mirror). "Mirror for viewer" flips the <b>actual stream sent to the viewer</b> — useful for selfie-mode, but text and signs will appear reversed for the viewer.
+            </div>
+            <div class="instruction-step">
+                <b>4. Connection Issues:</b> If direct connection fails due to network restrictions, try enabling <b>Relay mode</b> on both devices.
             </div>
 
             <div class="disclaimer-box">
@@ -425,6 +455,7 @@
 <script>
 let peer = null;
 let localStream = null;
+let outgoingStream = null; // поток, который реально отправляется зрителю (может быть зеркальным)
 let currentCall = null;
 let html5QrCode = null;
 let isMicMuted = false;
@@ -438,7 +469,14 @@ let statsVisible = false;
 let forceRelayMode = false;
 let wakeLock = null;
 let batteryInfoText = 'Battery: N/A';
-let isMirrored = false;
+let isMirrored = false;           // зеркало локального превью
+let mirrorStreamForViewer = false; // зеркалить ли поток для зрителя
+
+// Canvas для зеркалирования исходящего потока
+let mirrorCanvas = null;
+let mirrorCtx = null;
+let mirrorVideoEl = null;
+let mirrorAnimFrame = null;
 
 // Переменные для восстановления после сворачивания
 let wasHostActiveBeforeHidden = false;
@@ -478,13 +516,11 @@ document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible') {
         log('App returned to foreground', 'info');
         
-        // 1. Восстанавливаем WakeLock
         if (isHostMode || currentCall) {
-            wakeLock = null; // сбрасываем, т.к. браузер его уже релизнул
+            wakeLock = null;
             await requestWakeLock();
         }
         
-        // 2. Проверяем здоровье локальных треков (если мы host)
         if (localStream && isHostMode) {
             const vTrack = localStream.getVideoTracks()[0];
             const aTrack = localStream.getAudioTracks()[0];
@@ -497,7 +533,6 @@ document.addEventListener('visibilitychange', async () => {
                 await reinitializeCameraForHost();
             } else {
                 log('Local tracks still alive', 'ok');
-                // Обновляем srcObject на случай, если браузер его сбросил
                 if (remoteVideo.srcObject !== localStream) {
                     remoteVideo.srcObject = localStream;
                     remoteVideo.play().catch(() => {});
@@ -506,7 +541,6 @@ document.addEventListener('visibilitychange', async () => {
             }
         }
         
-        // 3. Если мы viewer и соединение отвалилось — сообщаем
         if (!isHostMode && currentCall) {
             const pc = currentCall.peerConnection;
             if (pc && (pc.connectionState === 'disconnected' || pc.connectionState === 'failed')) {
@@ -514,7 +548,6 @@ document.addEventListener('visibilitychange', async () => {
                 toast('Connection lost. Reconnect required.', 'error');
                 setStatus('error', 'Reconnect needed');
             } else if (pendingRemoteStream) {
-                // Перезапускаем видео если оно остановилось
                 if (remoteVideo.srcObject !== pendingRemoteStream) {
                     remoteVideo.srcObject = pendingRemoteStream;
                 }
@@ -526,13 +559,11 @@ document.addEventListener('visibilitychange', async () => {
             }
         }
     } else {
-        // Уходим в фон — фиксируем состояние
         wasHostActiveBeforeHidden = isHostMode;
         log('App went to background', 'warn');
     }
 });
 
-// Полная переинициализация камеры для host с сохранением соединения
 async function reinitializeCameraForHost() {
     if (isReinitializing) return;
     isReinitializing = true;
@@ -545,21 +576,22 @@ async function reinitializeCameraForHost() {
             return;
         }
         
-        // Если есть активный call — заменяем треки
+        // Пересоздаём исходящий поток (если включено зеркало для зрителя)
+        rebuildOutgoingStream();
+        
         if (currentCall && currentCall.peerConnection) {
             const pc = currentCall.peerConnection;
             const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
             const audioSender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
-            if (videoSender && localStream.getVideoTracks()[0]) {
-                await videoSender.replaceTrack(localStream.getVideoTracks()[0]);
+            if (videoSender && outgoingStream?.getVideoTracks()[0]) {
+                await videoSender.replaceTrack(outgoingStream.getVideoTracks()[0]);
             }
-            if (audioSender && localStream.getAudioTracks()[0]) {
-                await audioSender.replaceTrack(localStream.getAudioTracks()[0]);
+            if (audioSender && outgoingStream?.getAudioTracks()[0]) {
+                await audioSender.replaceTrack(outgoingStream.getAudioTracks()[0]);
             }
             log('Track replacements sent to viewer', 'ok');
         }
         
-        // Останавливаем старые треки
         if (oldStream) {
             oldStream.getTracks().forEach(t => { try { t.stop(); } catch(e){} });
         }
@@ -571,7 +603,6 @@ async function reinitializeCameraForHost() {
     }
 }
 
-// Следим за здоровьем треков — если браузер их убил, переинициализируем
 function watchTrackHealth() {
     if (trackHealthInterval) clearInterval(trackHealthInterval);
     trackHealthInterval = setInterval(async () => {
@@ -592,6 +623,80 @@ function stopTrackHealthWatch() {
         clearInterval(trackHealthInterval);
         trackHealthInterval = null;
     }
+}
+
+// ============================================================
+// ЗЕРКАЛИРОВАНИЕ ИСХОДЯЩЕГО ПОТОКА (через canvas)
+// ============================================================
+function stopMirrorPipeline() {
+    if (mirrorAnimFrame) {
+        cancelAnimationFrame(mirrorAnimFrame);
+        mirrorAnimFrame = null;
+    }
+    if (mirrorVideoEl) {
+        try { mirrorVideoEl.pause(); } catch(e) {}
+        mirrorVideoEl.srcObject = null;
+        mirrorVideoEl = null;
+    }
+    if (mirrorCanvas) {
+        mirrorCanvas = null;
+        mirrorCtx = null;
+    }
+}
+
+function startMirrorPipeline() {
+    stopMirrorPipeline();
+    if (!localStream) return;
+
+    mirrorVideoEl = document.createElement('video');
+    mirrorVideoEl.srcObject = localStream;
+    mirrorVideoEl.muted = true;
+    mirrorVideoEl.playsInline = true;
+
+    mirrorCanvas = document.createElement('canvas');
+    mirrorCtx = mirrorCanvas.getContext('2d');
+
+    const draw = () => {
+        if (!mirrorVideoEl || !mirrorCtx || !mirrorCanvas) return;
+        const vw = mirrorVideoEl.videoWidth || 1280;
+        const vh = mirrorVideoEl.videoHeight || 720;
+        if (mirrorCanvas.width !== vw) mirrorCanvas.width = vw;
+        if (mirrorCanvas.height !== vh) mirrorCanvas.height = vh;
+        mirrorCtx.save();
+        mirrorCtx.scale(-1, 1);
+        mirrorCtx.drawImage(mirrorVideoEl, -vw, 0, vw, vh);
+        mirrorCtx.restore();
+        mirrorAnimFrame = requestAnimationFrame(draw);
+    };
+
+    mirrorVideoEl.addEventListener('loadedmetadata', () => {
+        draw();
+    });
+    mirrorVideoEl.addEventListener('play', () => {
+        draw();
+    });
+    mirrorVideoEl.play().catch(() => {});
+}
+
+function rebuildOutgoingStream() {
+    if (!localStream) {
+        outgoingStream = null;
+        return;
+    }
+    if (mirrorStreamForViewer) {
+        // Создаём/перезапускаем canvas-пайплайн
+        startMirrorPipeline();
+        if (!mirrorCanvas) return;
+        const mirroredVideoStream = mirrorCanvas.captureStream(30);
+        const combined = new MediaStream();
+        mirroredVideoStream.getVideoTracks().forEach(t => combined.addTrack(t));
+        localStream.getAudioTracks().forEach(t => combined.addTrack(t));
+        outgoingStream = combined;
+    } else {
+        stopMirrorPipeline();
+        outgoingStream = localStream;
+    }
+    log('Outgoing stream: ' + (mirrorStreamForViewer ? 'mirrored (canvas)' : 'original'), 'info');
 }
 
 const TURN_SERVERS = [
@@ -636,6 +741,7 @@ const btnPlayPause = $('btnPlayPause');
 const iconPlayPause = $('iconPlayPause');
 const btnOpenInfo = $('btnOpenInfo');
 const btnMirror = $('btnMirror');
+const btnMirrorStream = $('btnMirrorStream');
 
 if (btnOpenInfo) {
     btnOpenInfo.addEventListener('click', () => {
@@ -772,11 +878,9 @@ async function initBatteryWatcher(conn) {
 }
 
 // ============================================================
-// ЗЕРКАЛИРОВАНИЕ
+// ЗЕРКАЛИРОВАНИЕ ЛОКАЛЬНОГО ПРЕВЬЮ (CSS)
 // ============================================================
 function applyMirrorState() {
-    // Зеркалим только локальное превью (когда показываем свою камеру)
-    // Не зеркалим входящий поток зрителя
     const isLocalPreview = isHostMode && remoteVideo.srcObject === localStream;
     if (isLocalPreview && isMirrored) {
         remoteVideo.classList.add('mirrored');
@@ -797,8 +901,37 @@ if (btnMirror) {
     btnMirror.addEventListener('click', () => {
         isMirrored = !isMirrored;
         applyMirrorState();
-        log(isMirrored ? 'Preview mirrored' : 'Preview unmirrored', 'info');
-        toast(isMirrored ? 'Mirror: ON' : 'Mirror: OFF');
+        log(isMirrored ? 'Local preview mirrored' : 'Local preview unmirrored', 'info');
+        toast(isMirrored ? 'Preview Mirror: ON' : 'Preview Mirror: OFF');
+    });
+}
+
+// Обработчик для switch "Mirror for viewer"
+if (btnMirrorStream) {
+    btnMirrorStream.addEventListener('click', async () => {
+        mirrorStreamForViewer = !mirrorStreamForViewer;
+        btnMirrorStream.classList.toggle('active', mirrorStreamForViewer);
+        log(mirrorStreamForViewer
+            ? 'Mirror for viewer: ON (stream will be flipped via canvas)'
+            : 'Mirror for viewer: OFF (original stream)', 'warn');
+        toast(mirrorStreamForViewer ? 'Viewer Mirror: ON' : 'Viewer Mirror: OFF');
+
+        // Пересобираем исходящий поток
+        rebuildOutgoingStream();
+
+        // Если есть активный вызов — заменяем треки
+        if (currentCall && currentCall.peerConnection && outgoingStream) {
+            try {
+                const pc = currentCall.peerConnection;
+                const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+                if (videoSender && outgoingStream.getVideoTracks()[0]) {
+                    await videoSender.replaceTrack(outgoingStream.getVideoTracks()[0]);
+                    log('Viewer stream updated', 'ok');
+                }
+            } catch (e) {
+                log('Failed to update viewer track: ' + e.message, 'error');
+            }
+        }
     });
 }
 
@@ -822,7 +955,6 @@ async function initLocalCamera(facingMode = 'user', preserveExisting = false) {
             audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
         });
 
-        // Останавливаем старые треки (кроме случая preserveExisting — тогда мы остановим их позже, после replaceTrack)
         if (localStream && !preserveExisting) {
             const oldVideoTrack = localStream.getVideoTracks()[0];
             const newVideoTrack = stream.getVideoTracks()[0];
@@ -858,17 +990,17 @@ async function initLocalCamera(facingMode = 'user', preserveExisting = false) {
         if (btnMirror) btnMirror.disabled = false;
         currentFacingMode = facingMode;
 
-        // Если мы host и есть активный call — заменяем треки (кроме случая preserveExisting,
-        // когда это уже сделает reinitializeCameraForHost)
-        if (!preserveExisting && isHostMode && currentCall?.peerConnection) {
+        // Пересобираем исходящий поток (важно для mirror for viewer)
+        rebuildOutgoingStream();
+
+        if (!preserveExisting && isHostMode && currentCall?.peerConnection && outgoingStream) {
             const pc = currentCall.peerConnection;
             const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
             const audioSender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
-            if (videoSender && vTracks[0]) await videoSender.replaceTrack(vTracks[0]);
-            if (audioSender && stream.getAudioTracks()[0]) await audioSender.replaceTrack(stream.getAudioTracks()[0]);
+            if (videoSender && outgoingStream.getVideoTracks()[0]) await videoSender.replaceTrack(outgoingStream.getVideoTracks()[0]);
+            if (audioSender && outgoingStream.getAudioTracks()[0]) await audioSender.replaceTrack(outgoingStream.getAudioTracks()[0]);
         }
 
-        // Навешиваем onended на треки, чтобы ловить смерть треков
         stream.getTracks().forEach(track => {
             track.addEventListener('ended', () => {
                 log('Track ended: ' + track.kind, 'warn');
@@ -970,7 +1102,6 @@ btnStartHost.addEventListener('click', async () => {
         const qrEl = $('qrcodeDisplay'); qrEl.innerHTML = '';
         try { new QRCode(qrEl, { text: code, width: 160, height: 160 }); } catch (e) {}
         $('hostModalOverlay').classList.add('active');
-        // Запускаем слежение за треками
         watchTrackHealth();
     });
 
@@ -982,14 +1113,14 @@ btnStartHost.addEventListener('click', async () => {
     peer.on('call', (call) => {
         try {
             log('Incoming call received, answering...', 'info');
-            // Гарантируем, что у нас живой поток
             if (!localStream || localStream.getVideoTracks()[0]?.readyState === 'ended') {
                 log('Stream dead at call time — reinitializing before answer', 'warn');
                 initLocalCamera(currentFacingMode).then(() => {
-                    call.answer(localStream);
+                    rebuildOutgoingStream();
+                    call.answer(outgoingStream || localStream);
                 });
             } else {
-                call.answer(localStream);
+                call.answer(outgoingStream || localStream);
             }
             currentCall = call;
             call.on('close', () => {
@@ -1087,8 +1218,8 @@ async function connectToCameraHost(code) {
     const targetPeerId = 'cam-' + code;
     if (peer) { try { peer.destroy(); } catch (e) {} }
 
-    let outgoingStream;
-    try { outgoingStream = localStream || await createDummyAudioStream(); }
+    let viewerOutgoingStream;
+    try { viewerOutgoingStream = localStream || await createDummyAudioStream(); }
     catch (e) { return; }
 
     peer = new Peer(buildPeerOptions());
@@ -1102,7 +1233,7 @@ async function connectToCameraHost(code) {
             }
         });
 
-        let call = peer.call(targetPeerId, outgoingStream);
+        let call = peer.call(targetPeerId, viewerOutgoingStream);
         if (!call) { 
             statusEl.innerText = 'Call failed'; 
             log('Failed to initiate call to target', 'error');
@@ -1151,7 +1282,7 @@ function handleActiveCall(call) {
 
 function attachStreamToRemote(stream) {
     remoteVideo.srcObject = null;
-    remoteVideo.classList.remove('mirrored');  // удалённый поток НЕ зеркалим
+    remoteVideo.classList.remove('mirrored');
     setTimeout(() => {
         remoteVideo.srcObject = stream;
         remoteVideo.style.display = 'block';
@@ -1165,13 +1296,14 @@ function stopRemoteStream() {
     pendingRemoteStream = null;
     remoteVideo.srcObject = null;
     remoteVideo.style.display = 'none';
-    remoteVideo.classList.remove('mirrored');  // сбрасываем зеркало
+    remoteVideo.classList.remove('mirrored');
     remotePlaceholder.style.display = 'flex';
     liveBadge.style.display = 'none';
     videoControls.style.display = 'none';
     playOverlay.classList.remove('show');
     stopStats();
     stopTrackHealthWatch();
+    stopMirrorPipeline();
     if (dummyAudioCtx) { try { dummyAudioCtx.close(); } catch (e) {} dummyAudioCtx = null; }
     releaseWakeLock();
     setStatus('', 'Waiting for action');
