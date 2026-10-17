@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>P2P CamStream — Phone to PC (v3)</title>
+    <title>E3 Camera</title>
+    <link rel="icon" type="image/png" href="logo.jpg">
 
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -21,12 +22,19 @@
         * { margin: 0; padding: 0; box-sizing: border-box;
             font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
             -webkit-tap-highlight-color: transparent; }
+        
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
         body { background: var(--bg); color: var(--text-main); min-height: 100vh;
             display: flex; flex-direction: column; align-items: center; padding: 32px 16px; }
         .app { max-width: 900px; width: 100%; display: flex; flex-direction: column; gap: 20px; }
 
         .header { display: flex; justify-content: space-between; align-items: center;
             padding-bottom: 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: 12px; }
+        .header-right { display: flex; align-items: center; gap: 12px; }
         .logo { font-size: 24px; font-weight: 700; letter-spacing: -0.5px;
             display: flex; align-items: center; gap: 10px; }
         .status-badge { font-size: 13px; color: var(--text-muted); background: var(--surface);
@@ -36,6 +44,11 @@
         .status-dot.online { background: var(--status-online); box-shadow: 0 0 8px var(--status-online); }
         .status-dot.connecting { background: var(--status-connecting); box-shadow: 0 0 8px var(--status-connecting); }
         .status-dot.error { background: var(--status-offline); }
+
+        .btn-info-icon { background: var(--surface); border: 1px solid var(--border); color: var(--text-main);
+            width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.2s ease; font-size: 14px; }
+        .btn-info-icon:hover { background: var(--surface-hover); border-color: #555; }
 
         .insecure-banner { display: none; background: rgba(244, 67, 54, 0.15);
             border: 1px solid rgba(244, 67, 54, 0.5); color: #f44336;
@@ -56,15 +69,14 @@
         .btn-sm { padding: 8px 12px; font-size: 12px; }
         .btn.active { background: rgba(59,130,246,0.2); border-color: var(--accent); color: var(--accent); }
 
-        /* Main video card — single screen */
         .video-card { background: var(--surface); border: 1px solid var(--border);
-            border-radius: 16px; overflow: hidden; position: relative; min-height: 480px;
+            border-radius: 16px; overflow: hidden; position: relative; height: 500px;
             display: flex; align-items: center; justify-content: center; background-color: #000; }
-        video { width: 100%; height: 100%; max-height: 600px; object-fit: contain; display: block; }
+        video { width: 100%; height: 100%; object-fit: contain; display: block; }
 
         .video-placeholder { display: flex; flex-direction: column; align-items: center;
             justify-content: center; gap: 12px; color: var(--text-muted);
-            text-align: center; padding: 24px; }
+            text-align: center; padding: 24px; position: absolute; inset: 0; background: var(--surface); z-index: 5; }
         .video-placeholder i { font-size: 42px; opacity: 0.6; }
 
         .play-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.75);
@@ -78,7 +90,7 @@
             transform: translateX(-50%); background: var(--modal-glass);
             backdrop-filter: blur(12px); border: 1px solid var(--modal-border);
             padding: 8px 16px; border-radius: 30px; display: flex;
-            align-items: center; gap: 14px; z-index: 10; }
+            align-items: center; gap: 14px; z-index: 10; width: max-content; }
         .control-btn { background: none; border: none; color: var(--text-main);
             font-size: 16px; cursor: pointer; width: 34px; height: 34px;
             border-radius: 50%; display: flex; align-items: center;
@@ -100,7 +112,6 @@
             color: var(--text-main); z-index: 10; display: none; line-height: 1.5; }
         .stats-panel.show { display: block; }
 
-        /* Local media controls bar (mic, cam, switch) */
         .local-media-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
             background: var(--surface); border: 1px solid var(--border);
             border-radius: 14px; padding: 12px 16px; }
@@ -108,11 +119,63 @@
         .local-media-bar .btn.active { background: rgba(59,130,246,0.2); border-color: var(--accent); color: var(--accent); }
         .local-media-bar .btn.muted { color: #f44336; border-color: rgba(244,67,54,0.3); }
         .media-label { font-size: 12px; color: var(--text-muted); margin-right: auto; }
+        
+        .custom-pin-input { 
+            background: var(--bg); 
+            color: #fff; 
+            border: 1px solid var(--border); 
+            padding: 0; 
+            border-radius: 10px; 
+            width: 70px; 
+            height: 35px; 
+            text-align: center; 
+            font-size: 0.8rem; 
+            font-weight: 700;
+            outline: none; 
+            transition: border-color 0.2s, background 0.2s; 
+        }
+        .custom-pin-input:focus, .custom-pin-input.has-value { 
+            border-color: #fff; 
+            background: var(--surface-hover); 
+        }
 
-        .log-panel { background: var(--surface); border: 1px solid var(--border);
-            border-radius: 14px; padding: 14px; font-family: monospace;
-            font-size: 11px; color: var(--text-muted); height: 180px;
-            overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+.log-panel { 
+    background: var(--surface); 
+    border: 1px solid var(--border);
+    border-radius: 14px; 
+    padding: 14px; 
+    font-family: monospace;
+    font-size: 11px; 
+    color: var(--text-muted); 
+    height: 180px;
+    overflow-y: auto; 
+    display: flex; 
+    flex-direction: column; 
+    gap: 3px;
+    
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) var(--bg);
+}
+
+.log-panel::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.log-panel::-webkit-scrollbar-track {
+    background: var(--bg);
+    border-radius: 8px;
+}
+
+.log-panel::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 8px;
+    border: 2px solid var(--bg);
+}
+
+.log-panel::-webkit-scrollbar-thumb:hover { 
+    background: var(--text-muted); 
+}
         .log-panel .log-error { color: #f44336; }
         .log-panel .log-ok { color: #4CAF50; }
         .log-panel .log-warn { color: #FFA726; }
@@ -145,6 +208,11 @@
             transition: background 0.2s, color 0.2s; }
         .modal-btn:hover { background: var(--surface-hover); color: var(--text-main); }
 
+        .instruction-step { text-align: left; margin-bottom: 12px; font-size: 13px; color: #ccc; line-height: 1.4; }
+        .instruction-step b { color: #fff; }
+        .disclaimer-box { background: rgba(244, 67, 54, 0.08); border: 1px solid rgba(244, 67, 54, 0.25);
+            padding: 10px; border-radius: 8px; text-align: left; font-size: 11px; color: #e57373; margin-top: 14px; line-height: 1.3; }
+
         .toast-container { position: fixed; top: 24px; left: 50%;
             transform: translateX(-50%); z-index: 3000; display: flex;
             flex-direction: column; gap: 10px; width: calc(100% - 40px);
@@ -168,8 +236,7 @@
         @media (max-width: 600px) {
             .action-bar { grid-template-columns: 1fr; }
             .stats-panel { font-size: 10px; }
-            .video-card { min-height: 300px; }
-            video { max-height: 400px; }
+            .video-card { height: 380px; }
             .local-media-bar { justify-content: center; }
             .media-label { display: none; }
         }
@@ -179,10 +246,15 @@
 
 <div class="app">
     <header class="header">
-        <div class="logo"><i class="fa-solid fa-video"></i><span>P2P CamStream</span></div>
-        <div class="status-badge">
-            <span id="statusDot" class="status-dot"></span>
-            <span id="statusText">Waiting for action</span>
+        <div class="logo"><i class="fa-solid fa-video"></i><span>E3 - Camera P2P</span></div>
+        <div class="header-right">
+            <div class="status-badge">
+                <span id="statusDot" class="status-dot"></span>
+                <span id="statusText">Waiting for action</span>
+            </div>
+            <button class="btn-info-icon" id="btnOpenInfo" title="Info & Instructions">
+                <i class="fa-solid fa-info"></i>
+            </button>
         </div>
     </header>
 
@@ -211,7 +283,6 @@
         </button>
     </div>
 
-    <!-- SINGLE CAMERA OUTPUT SCREEN -->
     <div class="video-card" id="videoCard">
         <video id="remoteVideo" autoplay playsinline muted style="display:none;"></video>
         <div id="remotePlaceholder" class="video-placeholder">
@@ -228,9 +299,13 @@
         </div>
         <div id="statsPanel" class="stats-panel"></div>
         <div id="videoControls" class="video-overlay-controls" style="display: none;">
+            <button id="btnPlayPause" class="control-btn" title="Play/Pause">
+                <i id="iconPlayPause" class="fa-solid fa-pause"></i>
+            </button>
             <button id="btnMuteAudio" class="control-btn" title="Sound">
                 <i id="iconAudio" class="fa-solid fa-volume-xmark"></i>
             </button>
+            <div style="flex-grow: 1;"></div>
             <button id="btnFullscreen" class="control-btn" title="Fullscreen">
                 <i class="fa-solid fa-expand"></i>
             </button>
@@ -240,9 +315,14 @@
         </div>
     </div>
 
-    <!-- LOCAL MEDIA CONTROLS: mic, camera on/off, switch camera -->
-    <div class="local-media-bar" id="localMediaBar" style="display: none;">
+    <div class="local-media-bar" id="localMediaBar">
         <span class="media-label"><i class="fa-solid fa-sliders"></i> Local media</span>
+        <select id="qualitySelect" class="btn btn-sm" style="background: var(--bg); color: #fff; border-color: var(--border);">
+            <option value="720p" selected>HD (720p)</option>
+            <option value="1080p">Full HD (1080p)</option>
+            <option value="480p">SD (480p)</option>
+        </select>
+        <input type="text" id="customPinInput" maxlength="4" placeholder="PIN (4)" class="custom-pin-input" inputmode="numeric" title="Custom 4-digit PIN">
         <button id="btnToggleMic" class="btn btn-sm" disabled>
             <i class="fa-solid fa-microphone"></i> <span id="micText">Mic On</span>
         </button>
@@ -254,7 +334,6 @@
         </button>
     </div>
 
-    <!-- Log panel (below the video) -->
     <div class="log-panel" id="logContainer">
         <div>[System]: Ready.</div>
     </div>
@@ -262,7 +341,32 @@
 
 <div class="toast-container" id="toastContainer"></div>
 
-<!-- MODAL: HOST -->
+<!-- Info & Instruction Modal -->
+<div class="modal-overlay" id="infoModalOverlay">
+    <div class="modal-box">
+        <div class="modal-content">
+            <div class="modal-title"><i class="fa-solid fa-circle-info" style="color: var(--accent);"></i> How to Use</div>
+            
+            <div class="instruction-step">
+                <b>1. Share Camera (Host):</b> Click "Share camera", grant camera permissions, and share the generated 4-digit PIN or QR code with the viewing device.
+            </div>
+            <div class="instruction-step">
+                <b>2. Connect to Camera (Viewer):</b> Click "Connect to camera", enter the 4-digit PIN or scan the host's QR code to view the live stream.
+            </div>
+            <div class="instruction-step">
+                <b>3. Connection Issues:</b> If direct connection fails due to network restrictions, try enabling <b>Relay mode</b> on both devices.
+            </div>
+
+            <div class="disclaimer-box">
+                <b>Disclaimer:</b> This application is provided for general assistance and convenience only. The developer assumes no responsibility or liability for any errors, security risks, connection issues, or loss of data resulting from the use of this software.
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button class="modal-btn" onclick="closeInfoModal()">Got it</button>
+        </div>
+    </div>
+</div>
+
 <div class="modal-overlay" id="hostModalOverlay">
     <div class="modal-box">
         <div class="modal-content">
@@ -278,7 +382,6 @@
     </div>
 </div>
 
-<!-- MODAL: VIEWER -->
 <div class="modal-overlay" id="connectModalOverlay">
     <div class="modal-box">
         <div class="modal-content">
@@ -301,7 +404,6 @@
     </div>
 </div>
 
-<!-- MODAL: QR -->
 <div class="modal-overlay" id="qrScannerModalOverlay">
     <div class="modal-box">
         <div class="modal-content">
@@ -317,7 +419,6 @@
 </div>
 
 <script>
-// ======================== STATE ========================
 let peer = null;
 let localStream = null;
 let currentCall = null;
@@ -331,49 +432,37 @@ let pendingRemoteStream = null;
 let statsInterval = null;
 let statsVisible = false;
 let forceRelayMode = false;
-let videoCheckInterval = null;
-let wakeLock = null; // Screen Wake Lock variable
+let wakeLock = null;
+let batteryInfoText = 'Battery: N/A';
 
-// ======================== SCREEN WAKE LOCK ========================
+const consoleStyledLog = (msg, type = 'info') => {
+    let style = 'color: #3b82f6; font-weight: bold;';
+    if (type === 'error') style = 'color: #f44336; font-weight: bold; background: rgba(244,67,54,0.1); padding: 2px 4px; border-radius: 3px;';
+    if (type === 'ok') style = 'color: #4CAF50; font-weight: bold;';
+    if (type === 'warn') style = 'color: #FFA726; font-weight: bold;';
+    console.log(`%c[P2P CamStream] ${msg}`, style);
+};
+
 async function requestWakeLock() {
-    if (!('wakeLock' in navigator)) {
-        log('Wake Lock API not supported in this browser', 'warn');
-        return;
-    }
+    if (!('wakeLock' in navigator)) return;
     try {
         wakeLock = await navigator.wakeLock.request('screen');
-        log('✓ Screen Wake Lock active — screen will not sleep', 'ok');
-        // При потере блокировки (свернули вкладку) логируем
-        wakeLock.addEventListener('release', () => {
-            log('Screen Wake Lock released', 'info');
-        });
-    } catch (err) {
-        log(`Wake Lock error: ${err.name} — ${err.message}`, 'warn');
-    }
+        wakeLock.addEventListener('release', () => {});
+    } catch (err) {}
 }
 
 function releaseWakeLock() {
     if (wakeLock !== null) {
-        wakeLock.release().then(() => {
-            wakeLock = null;
-            log('Wake Lock released by user action', 'info');
-        });
+        wakeLock.release().then(() => { wakeLock = null; });
     }
 }
 
-// Автоматически запрашиваем снова, если вкладка стала видимой
 document.addEventListener('visibilitychange', async () => {
     if (wakeLock !== null && document.visibilityState === 'visible') {
-        try {
-            wakeLock = await navigator.wakeLock.request('screen');
-            log('Wake Lock re-acquired on visibility change', 'ok');
-        } catch (e) {
-            log('Wake Lock re-acquire failed: ' + e.message, 'warn');
-        }
+        try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
     }
 });
 
-// ======================== ICE ========================
 const TURN_SERVERS = [
     { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
     { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
@@ -398,21 +487,41 @@ function buildPeerOptions() {
     return opts;
 }
 
-// ======================== DOM ========================
 const $ = id => document.getElementById(id);
-const btnStartHost = $('btnStartHost'), btnOpenConnect = $('btnOpenConnect');
-const btnTestNat = $('btnTestNat'), btnForceRelay = $('btnForceRelay'), btnToggleStats = $('btnToggleStats');
+const btnStartHost = $('btnStartHost'), btnOpenConnect =$('btnOpenConnect');
+const btnTestNat = $('btnTestNat'), btnForceRelay = $('btnForceRelay'), btnToggleStats =$('btnToggleStats');
 const remoteVideo = $('remoteVideo');
 const remotePlaceholder = $('remotePlaceholder');
-const liveBadge = $('liveBadge'), liveBadgeText = $('liveBadgeText');
-const videoControls = $('videoControls'), statusDot = $('statusDot'), statusText = $('statusText');
-const logContainer = $('logContainer'), playOverlay = $('playOverlay'), videoCard = $('videoCard');
-const insecureBanner = $('insecureBanner'), statsPanel = $('statsPanel');
-const btnToggleMic = $('btnToggleMic'), btnToggleCam = $('btnToggleCam'), btnSwitchCam = $('btnSwitchCam');
-const micText = $('micText'), camText = $('camText');
+const liveBadge = $('liveBadge'), liveBadgeText =$('liveBadgeText');
+const videoControls = $('videoControls'), statusDot = $('statusDot'), statusText =$('statusText');
+const logContainer = $('logContainer'), playOverlay = $('playOverlay'), videoCard =$('videoCard');
+const insecureBanner = $('insecureBanner'), statsPanel =$('statsPanel');
+const btnToggleMic = $('btnToggleMic'), btnToggleCam = $('btnToggleCam'), btnSwitchCam =$('btnSwitchCam');
+const micText = $('micText'), camText =$('camText');
 const localMediaBar = $('localMediaBar');
+const qualitySelect = $('qualitySelect');
+const customPinInput = $('customPinInput');
+const btnPlayPause = $('btnPlayPause');
+const iconPlayPause = $('iconPlayPause');
+const btnOpenInfo = $('btnOpenInfo');
 
-// ======================== HELPERS ========================
+if (btnOpenInfo) {
+    btnOpenInfo.addEventListener('click', () => {
+        $('infoModalOverlay').classList.add('active');
+    });
+}
+
+function closeInfoModal() {
+    $('infoModalOverlay').classList.remove('active');
+}
+
+if (customPinInput) {
+    customPinInput.addEventListener('input', function() {
+        this.value = this.value.replace(/\D/g, '').slice(0, 4);
+        this.classList.toggle('has-value', this.value.length > 0);
+    });
+}
+
 function toast(msg, type = 'info') {
     const c = $('toastContainer'), item = document.createElement('div');
     item.className = 'toast-item';
@@ -435,7 +544,7 @@ function log(msg, level = 'info') {
     div.textContent = `[${time}] ${msg}`;
     logContainer.appendChild(div);
     logContainer.scrollTop = logContainer.scrollHeight;
-    (level === 'error' ? console.error : level === 'warn' ? console.warn : console.log)('[Cam] ' + msg);
+    consoleStyledLog(msg, level);
 }
 
 function setStatus(state, text) { statusText.textContent = text; statusDot.className = 'status-dot ' + state; }
@@ -446,43 +555,42 @@ function isSecure() {
 }
 
 function checkSecureContext() {
-    if (!isSecure()) { insecureBanner.classList.add('show'); log('NOT HTTPS/localhost!', 'error'); return false; }
+    if (!isSecure()) { insecureBanner.classList.add('show'); return false; }
     insecureBanner.classList.remove('show'); return true;
 }
 
-// ======================== NAT TEST ========================
 async function testNat() {
-    log('=== NAT/STUN test ===', 'info');
+    log('Starting NAT test...', 'info');
     try {
         const pc = new RTCPeerConnection({ iceServers: STUN_SERVERS });
         pc.createDataChannel('probe');
-        pc.onicecandidate = (e) => {
-            if (!e.candidate) { pc.close(); return; }
-            const c = e.candidate.candidate;
-            if (c.includes(' typ host')) log('  host — ok', 'ok');
-            if (c.includes(' typ srflx')) log('  srflx — ok', 'ok');
-            if (c.includes(' typ relay')) log('  relay — ok', 'ok');
-        };
         await pc.setLocalDescription(await pc.createOffer());
-        log('Waiting for ICE candidates (3s)...', 'info');
+        log('NAT test completed successfully', 'ok');
         setTimeout(() => { try { pc.close(); } catch(e){} }, 3000);
-    } catch (e) { log('NAT test: ' + e.message, 'error'); }
+    } catch (e) {
+        log('NAT test failed: ' + e.message, 'error');
+    }
 }
 btnTestNat.addEventListener('click', testNat);
 
-// ======================== FORCE RELAY ========================
 btnForceRelay.addEventListener('click', () => {
     forceRelayMode = !forceRelayMode;
     btnForceRelay.classList.toggle('active', forceRelayMode);
-    log(`Relay mode: ${forceRelayMode ? 'ON' : 'OFF'}`, forceRelayMode ? 'warn' : 'info');
+    log(forceRelayMode ? 'Switched to Relay mode (TURN only)' : 'Switched to P2P mode', 'warn');
     toast(forceRelayMode ? 'Relay: TURN only' : 'P2P: direct channel');
 });
 
-// ======================== STATS ========================
 btnToggleStats.addEventListener('click', () => {
     statsVisible = !statsVisible;
     statsPanel.classList.toggle('show', statsVisible);
-    if (statsVisible) startStats(); else stopStats();
+    btnToggleStats.classList.toggle('active', statsVisible);
+    if (statsVisible) {
+        log('Stats panel opened', 'info');
+        startStats();
+    } else {
+        log('Stats panel closed', 'info');
+        stopStats();
+    }
 });
 
 function startStats() {
@@ -498,113 +606,119 @@ function startStats() {
                 if (r.type === 'candidate-pair' && r.state === 'succeeded') candidatePair = r;
             });
             let html = '';
+            html += `${batteryInfoText}<br>`;
             if (inboundVideo) {
-                html += `VIDEO: ${inboundVideo.frameWidth || 0}×${inboundVideo.frameHeight || 0}<br>`;
+                html += `VIDEO: ${inboundVideo.frameWidth || 0}x${inboundVideo.frameHeight || 0}<br>`;
                 html += `frames: ${inboundVideo.framesDecoded || 0}<br>`;
-                html += `${inboundVideo.bytesReceived || 0} bytes<br>`;
             } else {
-                html += `❌ VIDEO: no inbound-rtp<br>`;
+                html += `VIDEO: no inbound-rtp<br>`;
             }
-            if (inboundAudio) {
-                html += `AUDIO: ${inboundAudio.bytesReceived || 0} bytes<br>`;
-            } else {
-                html += `❌ AUDIO: none<br>`;
-            }
-            html += `🔗 ${candidatePair ? candidatePair.state : '—'}`;
+            html += `State: ${candidatePair ? candidatePair.state : '—'}`;
             statsPanel.innerHTML = html;
-        } catch (e) { /* ignore */ }
+        } catch (e) {}
     }, 1000);
 }
 function stopStats() { if (statsInterval) { clearInterval(statsInterval); statsInterval = null; } statsPanel.innerHTML = ''; }
 
-// ======================== LOCAL MEDIA ========================
+async function initBatteryWatcher(conn) {
+    if (!('getBattery' in navigator)) return;
+    try {
+        const battery = await navigator.getBattery();
+        const sendBattery = () => {
+            if (conn && conn.open) {
+                conn.send({
+                    type: 'battery',
+                    level: Math.round(battery.level * 100),
+                    charging: battery.charging
+                });
+            }
+        };
+        sendBattery();
+        battery.addEventListener('levelchange', sendBattery);
+        battery.addEventListener('chargingchange', sendBattery);
+    } catch (e) {}
+}
+
 async function initLocalCamera(facingMode = 'user') {
     if (!checkSecureContext()) return false;
-    if (!navigator.mediaDevices?.getUserMedia) { log('getUserMedia not supported', 'error'); return false; }
+    if (!navigator.mediaDevices?.getUserMedia) {
+        log('getUserMedia is not supported in this browser', 'error');
+        return false;
+    }
+
+    const quality = qualitySelect ? qualitySelect.value : '720p';
+    let width = 1280, height = 720;
+    if (quality === '1080p') { width = 1920; height = 1080; }
+    else if (quality === '480p') { width = 854; height = 480; }
+
+    log(`Initializing local camera (${quality}, facing: ${facingMode})...`, 'info');
 
     try {
-        log(`getUserMedia (facingMode=${facingMode})...`, 'info');
         const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: facingMode }, width: { ideal: 1280 }, height: { ideal: 720 } },
+            video: { facingMode: { ideal: facingMode }, width: { ideal: width }, height: { ideal: height } },
             audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
         });
 
-        // Stop old tracks
-        if (localStream) localStream.getTracks().forEach(t => t.stop());
+        if (localStream) {
+            const oldVideoTrack = localStream.getVideoTracks()[0];
+            const newVideoTrack = stream.getVideoTracks()[0];
+            const oldAudioTrack = localStream.getAudioTracks()[0];
+            const newAudioTrack = stream.getAudioTracks()[0];
+
+            if (oldVideoTrack && newVideoTrack) oldVideoTrack.stop();
+            if (oldAudioTrack && newAudioTrack) oldAudioTrack.stop();
+        }
+
         localStream = stream;
-
-        // IMPORTANT: check BOTH tracks — if no video, stop
         const vTracks = stream.getVideoTracks();
-        const aTracks = stream.getAudioTracks();
-        log(`Captured tracks: video=${vTracks.length}, audio=${aTracks.length}`,
-            vTracks.length ? 'ok' : 'error');
-
         if (vTracks.length === 0) {
-            log('❌ NO VIDEO TRACK — streaming impossible!', 'error');
-            toast('No video track! Allow camera access.', 'error');
+            log('No video tracks found in local stream', 'error');
             return false;
         }
 
-        vTracks.forEach((t, i) => {
-            const s = t.getSettings?.() || {};
-            log(`  video[${i}]: ${t.label} | ${s.width}×${s.height} @ ${s.frameRate || '?'}fps | enabled=${t.enabled} | readyState=${t.readyState}`, 'ok');
-        });
-        aTracks.forEach((t, i) => {
-            log(`  audio[${i}]: ${t.label} | enabled=${t.enabled} | readyState=${t.readyState}`, 'ok');
-        });
-
-        // Show local preview in the main video element
         remoteVideo.srcObject = stream;
         remoteVideo.muted = true;
         remoteVideo.style.display = 'block';
-        remoteVideo.play().catch(e => log('local.play: ' + e.message, 'warn'));
+        remoteVideo.play().catch(e => {});
         remotePlaceholder.style.display = 'none';
 
-        // Reset state flags
         isMicMuted = false;
         isCamStopped = false;
         updateLocalMediaUI();
 
-        // Enable local media controls
         localMediaBar.style.display = 'flex';
         btnToggleMic.disabled = false;
         btnToggleCam.disabled = false;
         btnSwitchCam.style.display = 'inline-flex';
         currentFacingMode = facingMode;
 
-        // Indicator in preview
-        setTimeout(() => {
-            if (remoteVideo.videoWidth > 0) {
-                log(`✓ Local video decoding: ${remoteVideo.videoWidth}×${remoteVideo.videoHeight}`, 'ok');
-            } else {
-                log('⚠ Local videoWidth=0 — camera is not delivering frames', 'error');
-            }
-        }, 800);
-
-        // Replace track in active call (camera switch)
         if (isHostMode && currentCall?.peerConnection) {
             const pc = currentCall.peerConnection;
             const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
             const audioSender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
-            if (videoSender && vTracks[0]) {
-                try { await videoSender.replaceTrack(vTracks[0]); log('Video track replaced in call', 'ok'); }
-                catch (e) { log('replaceTrack video: ' + e.message, 'error'); }
-            }
-            if (audioSender && aTracks[0]) {
-                try { await audioSender.replaceTrack(aTracks[0]); log('Audio track replaced in call', 'ok'); }
-                catch (e) { log('replaceTrack audio: ' + e.message, 'error'); }
-            }
+            if (videoSender && vTracks[0]) await videoSender.replaceTrack(vTracks[0]);
+            if (audioSender && stream.getAudioTracks()[0]) await audioSender.replaceTrack(stream.getAudioTracks()[0]);
         }
 
+        log('Local camera initialized successfully', 'ok');
         return true;
     } catch (err) {
-        log(`getUserMedia FAIL: ${err.name} — ${err.message}`, 'error');
+        log('Camera error: ' + err.name + ' - ' + err.message, 'error');
         toast('Camera: ' + err.name, 'error');
         return false;
     }
 }
 
-// Update mic/cam button labels and styles based on current state
+if (qualitySelect) {
+    qualitySelect.addEventListener('change', async () => {
+        if (localStream) {
+            log('Quality changed to ' + qualitySelect.value, 'info');
+            await initLocalCamera(currentFacingMode);
+            toast('Quality updated');
+        }
+    });
+}
+
 function updateLocalMediaUI() {
     if (isMicMuted) {
         micText.textContent = 'Mic Off';
@@ -627,51 +741,46 @@ function updateLocalMediaUI() {
     }
 }
 
-// ======================== MIC / CAM / SWITCH CONTROLS ========================
 btnToggleMic.addEventListener('click', () => {
     if (!localStream) return;
     const track = localStream.getAudioTracks()[0];
-    if (track) {
-        isMicMuted = !isMicMuted;
-        track.enabled = !isMicMuted;
-        updateLocalMediaUI();
-        log(`Microphone ${isMicMuted ? 'OFF' : 'ON'}`, 'info');
-        toast(isMicMuted ? 'Microphone muted' : 'Microphone enabled');
+    if (track) { 
+        isMicMuted = !isMicMuted; 
+        track.enabled = !isMicMuted; 
+        updateLocalMediaUI(); 
+        log(isMicMuted ? 'Microphone muted' : 'Microphone unmuted', 'warn');
     }
 });
 
 btnToggleCam.addEventListener('click', () => {
     if (!localStream) return;
     const track = localStream.getVideoTracks()[0];
-    if (track) {
-        isCamStopped = !isCamStopped;
-        track.enabled = !isCamStopped;
-        updateLocalMediaUI();
-        log(`Camera ${isCamStopped ? 'OFF' : 'ON'}`, 'info');
-        toast(isCamStopped ? 'Camera disabled' : 'Camera enabled');
+    if (track) { 
+        isCamStopped = !isCamStopped; 
+        track.enabled = !isCamStopped; 
+        updateLocalMediaUI(); 
+        log(isCamStopped ? 'Camera track disabled' : 'Camera track enabled', 'warn');
     }
 });
 
 btnSwitchCam.addEventListener('click', async () => {
     const next = currentFacingMode === 'user' ? 'environment' : 'user';
-    log('Switching camera to ' + next, 'info');
+    log('Switching camera to: ' + next, 'info');
     await initLocalCamera(next);
 });
 
-// ======================== HOST ========================
 btnStartHost.addEventListener('click', async () => {
     const ready = await initLocalCamera(currentFacingMode);
-    if (!ready) {
-        toast('Failed to capture video — stream not started', 'error');
-        return;
-    }
+    if (!ready) return;
 
-    // Request Wake Lock when user starts sharing camera
     await requestWakeLock();
-
     isHostMode = true;
-    const code = Math.floor(1000 + Math.random() * 9000).toString();
+
+    const customPin = customPinInput ? customPinInput.value.trim() : '';
+    const code = /^\d{4}$/.test(customPin) ? customPin : Math.floor(1000 + Math.random() * 9000).toString();
     const peerId = 'cam-' + code;
+
+    log('Hosting session with code: ' + code, 'info');
 
     if (peer) { try { peer.destroy(); } catch (e) {} }
     setStatus('connecting', 'Creating session...');
@@ -679,7 +788,7 @@ btnStartHost.addEventListener('click', async () => {
 
     peer.on('open', (id) => {
         setStatus('online', 'Stream ready');
-        log(`✓ Session: ${id} | Code: ${code}`, 'ok');
+        log('Peer server opened with ID: ' + id, 'ok');
         $('displayHostCode').innerText = code;
         $('hostStatusBadge').innerText = 'Waiting for viewer...';
         const qrEl = $('qrcodeDisplay'); qrEl.innerHTML = '';
@@ -687,60 +796,33 @@ btnStartHost.addEventListener('click', async () => {
         $('hostModalOverlay').classList.add('active');
     });
 
+    peer.on('connection', (conn) => {
+        log('Data connection established from viewer', 'ok');
+        initBatteryWatcher(conn);
+    });
+
     peer.on('call', (call) => {
-        log('Incoming call — answering', 'info');
-
-        // CRITICAL: ensure localStream has video
-        const vTracks = localStream?.getVideoTracks() || [];
-        if (vTracks.length === 0) {
-            log('❌ No video track when answering — viewer will see black screen!', 'error');
-            toast('No video track!', 'error');
-            return;
-        }
-
         try {
+            log('Incoming call received, answering...', 'info');
             call.answer(localStream);
             currentCall = call;
-
-            setTimeout(() => {
-                try {
-                    const pc = call.peerConnection;
-                    if (!pc) return;
-                    const localDesc = pc.localDescription?.sdp || '';
-                    const hasVideo = localDesc.includes('m=video');
-                    const hasAudio = localDesc.includes('m=audio');
-                    log(`[host] SDP: video=${hasVideo ? '✓' : '❌'}, audio=${hasAudio ? '✓' : '❌'}`, hasVideo ? 'ok' : 'error');
-
-                    const senders = pc.getSenders();
-                    senders.forEach(s => {
-                        log(`[host] sender: ${s.track?.kind || 'null'} — ${s.track?.label || ''}`, 'info');
-                    });
-
-                    tryPrioritizeH264(pc);
-                } catch (e) { log('SDP diag: ' + e.message, 'warn'); }
-            }, 500);
-
-            attachCallDebug(call, 'host');
-
             call.on('close', () => {
-                log('Viewer disconnected', 'warn');
+                log('Call closed by remote peer', 'warn');
                 currentCall = null;
                 if (isHostMode) { showLocalInMain(); setStatus('online', 'Waiting for viewer'); }
             });
-            call.on('error', (err) => log('call error: ' + (err.message || err.type), 'error'));
-
             closeHostModal();
             toast('Viewer connected!', 'success');
             setStatus('online', 'Stream active');
             showLocalInMain();
         } catch (e) {
-            log('answer FAIL: ' + e.message, 'error');
+            log('Error answering call: ' + e.message, 'error');
         }
     });
 
     peer.on('error', (err) => {
-        log(`Peer error: ${err.type} — ${err.message || ''}`, 'error');
-        setStatus('error', 'P2P error');
+        log('Peer error: ' + err.type, 'error');
+        setStatus('error', 'Peer error');
     });
 });
 
@@ -751,7 +833,7 @@ function showLocalInMain() {
     remoteVideo.srcObject = localStream;
     remoteVideo.muted = true;
     remoteVideo.style.display = 'block';
-    remoteVideo.play().catch(e => log('host play: ' + e.message, 'warn'));
+    remoteVideo.play().catch(e => {});
     remotePlaceholder.style.display = 'none';
     liveBadge.style.display = 'flex';
     liveBadgeText.textContent = 'Your camera (host)';
@@ -759,33 +841,9 @@ function showLocalInMain() {
     playOverlay.classList.remove('show');
 }
 
-// Prioritize H.264 for phone↔PC compatibility
-async function tryPrioritizeH264(pc) {
-    try {
-        const transceivers = pc.getTransceivers();
-        for (const t of transceivers) {
-            if (t.receiver?.track?.kind === 'video' || t.sender?.track?.kind === 'video') {
-                if (typeof RTCRtpSender.getCapabilities === 'function') {
-                    const caps = RTCRtpSender.getCapabilities('video');
-                    if (caps?.codecs) {
-                        const h264 = caps.codecs.filter(c => c.mimeType.includes('H264'));
-                        const rest = caps.codecs.filter(c => !c.mimeType.includes('H264'));
-                        if (h264.length) {
-                            try { t.setCodecPreferences([...h264, ...rest]); log('H.264 priority set', 'ok'); }
-                            catch (e) { log('setCodecPreferences: ' + e.message, 'warn'); }
-                        }
-                    }
-                }
-            }
-        }
-    } catch (e) { /* ignore */ }
-}
-
-// ======================== VIEWER ========================
 btnOpenConnect.addEventListener('click', () => {
     $('connectModalOverlay').classList.add('active');
     clearPinInputs();
-    // Request wake lock when viewer opens connection dialog
     requestWakeLock();
 });
 
@@ -830,7 +888,6 @@ async function createDummyAudioStream() {
     gain.gain.value = 0;
     const dst = dummyAudioCtx.createMediaStreamDestination();
     osc.connect(gain); gain.connect(dst); osc.start();
-    log('Dummy audio ready', 'info');
     return dst.stream;
 }
 
@@ -838,76 +895,47 @@ async function connectToCameraHost(code) {
     const statusEl = $('connectStatusBadge');
     statusEl.innerText = 'Connecting...';
     setStatus('connecting', 'Connecting...');
+    log('Attempting to connect to host PIN: ' + code, 'info');
     isHostMode = false;
     const targetPeerId = 'cam-' + code;
     if (peer) { try { peer.destroy(); } catch (e) {} }
 
     let outgoingStream;
     try { outgoingStream = localStream || await createDummyAudioStream(); }
-    catch (e) { log('Outgoing FAIL: ' + e.message, 'error'); return; }
+    catch (e) { return; }
 
     peer = new Peer(buildPeerOptions());
 
     peer.on('open', () => {
-        log(`Calling ${targetPeerId} (policy: ${forceRelayMode ? 'relay' : 'all'})`, 'info');
-        let call;
-        try { call = peer.call(targetPeerId, outgoingStream); }
-        catch (e) { log('peer.call FAIL: ' + e.message, 'error'); return; }
-        if (!call) { statusEl.innerText = 'Call failed'; return; }
+        log('Viewer peer opened successfully', 'ok');
+        const conn = peer.connect(targetPeerId);
+        conn.on('data', (data) => {
+            if (data.type === 'battery') {
+                batteryInfoText = `Battery: ${data.level}% ${data.charging ? 'charging' : ''}`;
+            }
+        });
+
+        let call = peer.call(targetPeerId, outgoingStream);
+        if (!call) { 
+            statusEl.innerText = 'Call failed'; 
+            log('Failed to initiate call to target', 'error');
+            return; 
+        }
         handleActiveCall(call);
     });
 
     peer.on('error', (err) => {
         statusEl.innerText = 'Camera not found or wrong code';
+        log('Connection error: ' + err.type, 'error');
         setStatus('error', 'Error');
-        log(`Peer error: ${err.type} — ${err.message || ''}`, 'error');
     });
 }
 
-// ======================== CALL DEBUG ========================
-function attachCallDebug(call, who) {
-    const pc = call.peerConnection;
-    if (!pc) { log(`[${who}] no pc for debug`, 'warn'); return; }
-    pc.addEventListener('iceconnectionstatechange', () => {
-        const st = pc.iceConnectionState;
-        const bad = st === 'failed' || st === 'disconnected';
-        log(`[${who}] ICE: ${st}`, bad ? 'error' : 'ok');
-    });
-    pc.addEventListener('connectionstatechange', () => {
-        log(`[${who}] PC: ${pc.connectionState}`, pc.connectionState === 'connected' ? 'ok' : 'info');
-    });
-    pc.addEventListener('icecandidate', (e) => {
-        if (!e.candidate) { log(`[${who}] ICE gathering done`, 'info'); return; }
-        const c = e.candidate.candidate;
-        let type = 'other';
-        if (c.includes(' typ host')) type = 'host';
-        else if (c.includes(' typ srflx')) type = 'srflx';
-        else if (c.includes(' typ relay')) type = 'relay';
-        log(`[${who}] ICE candidate: ${type}`, type === 'relay' ? 'warn' : 'info');
-    });
-}
-
-// ======================== CALL HANDLER (viewer) ========================
 function handleActiveCall(call) {
     currentCall = call;
-    attachCallDebug(call, 'viewer');
 
     call.on('stream', (remoteStream) => {
-        log(`✓ STREAM RECEIVED. Tracks: ${remoteStream.getTracks().length}`, 'ok');
-        const vTracks = remoteStream.getVideoTracks();
-        const aTracks = remoteStream.getAudioTracks();
-        log(`  video: ${vTracks.length}, audio: ${aTracks.length}`,
-            vTracks.length ? 'ok' : 'error');
-
-        if (vTracks.length === 0) {
-            log('❌ NO VIDEO TRACK IN STREAM. Host did not send video!', 'error');
-            toast('Host did not send video — check phone camera', 'error');
-        }
-
-        remoteStream.getTracks().forEach(t => {
-            log(`  ${t.kind} enabled=${t.enabled} readyState=${t.readyState} label="${t.label}"`, 'info');
-        });
-
+        log('Remote media stream received', 'ok');
         pendingRemoteStream = remoteStream;
         attachStreamToRemote(remoteStream);
 
@@ -917,47 +945,21 @@ function handleActiveCall(call) {
         videoControls.style.display = 'flex';
         setStatus('online', 'Stream active');
 
-        setTimeout(() => {
-            try {
-                const pc = call.peerConnection;
-                if (!pc) return;
-                const remoteDesc = pc.remoteDescription?.sdp || '';
-                log(`[viewer] remote SDP: video=${remoteDesc.includes('m=video') ? '✓' : '❌'}, audio=${remoteDesc.includes('m=audio') ? '✓' : '❌'}`,
-                    remoteDesc.includes('m=video') ? 'ok' : 'error');
-                const receivers = pc.getReceivers();
-                receivers.forEach(r => log(`[viewer] receiver: ${r.track?.kind || 'null'}`, 'info'));
-            } catch (e) {}
-        }, 500);
-
         const pp = remoteVideo.play();
         if (pp && pp.catch) {
-            pp.catch((err) => {
-                log('autoplay blocked: ' + err.name, 'warn');
-                playOverlay.classList.add('show');
-            });
+            pp.catch(() => { playOverlay.classList.add('show'); });
         }
-
-        remoteVideo.onloadedmetadata = () => {
-            log(`loadedmetadata: ${remoteVideo.videoWidth}×${remoteVideo.videoHeight}`,
-                remoteVideo.videoWidth > 0 ? 'ok' : 'warn');
-        };
 
         closeConnectModal();
         toast('Connection established!', 'success');
-
-        startVideoCheck();
     });
 
-    call.on('close', () => { log('Connection closed', 'warn'); stopRemoteStream(); });
-    call.on('error', (err) => log('call error: ' + (err.message || err.type), 'error'));
-
-    setTimeout(() => {
-        if (currentCall === call && !remoteVideo.srcObject) {
-            log('⏱ No stream received in 20s', 'error');
-            $('connectStatusBadge').innerText = 'Stream not received. Check code + network.';
-            setStatus('error', 'No stream');
-        }
-    }, 20000);
+    call.on('close', () => {
+        log('Active call closed', 'warn');
+        stopRemoteStream();
+        setStatus('offline', 'Connection lost');
+        toast('Connection lost', 'error');
+    });
 }
 
 function attachStreamToRemote(stream) {
@@ -965,44 +967,12 @@ function attachStreamToRemote(stream) {
     setTimeout(() => {
         remoteVideo.srcObject = stream;
         remoteVideo.style.display = 'block';
-        remoteVideo.play().catch(e => log('reattach play: ' + e.message, 'warn'));
+        remoteVideo.play().catch(e => {});
     }, 120);
 }
 
-function startVideoCheck() {
-    if (videoCheckInterval) clearInterval(videoCheckInterval);
-    let attempts = 0;
-    videoCheckInterval = setInterval(() => {
-        attempts++;
-        const w = remoteVideo.videoWidth;
-        const h = remoteVideo.videoHeight;
-        if (w > 0 && h > 0) {
-            log(`Video decoding: ${w}×${h}`, 'ok');
-            clearInterval(videoCheckInterval);
-            videoCheckInterval = null;
-        } else if (attempts % 3 === 0) {
-            log(`⚠ videoWidth=0 (attempt ${attempts}) — data not decoding`, 'error');
-            if (pendingRemoteStream && attempts < 10) {
-                attachStreamToRemote(pendingRemoteStream);
-            }
-            if (currentCall?.peerConnection) {
-                currentCall.peerConnection.getStats().then(stats => {
-                    let hasInbound = false;
-                    stats.forEach(r => {
-                        if (r.type === 'inbound-rtp' && r.kind === 'video') {
-                            hasInbound = true;
-                            log(`inbound-video: framesDecoded=${r.framesDecoded || 0}, bytesReceived=${r.bytesReceived || 0}, frameWidth=${r.frameWidth || 0}`, 'info');
-                        }
-                    });
-                    if (!hasInbound) log('NO inbound-video — stream not flowing!', 'error');
-                }).catch(() => {});
-            }
-        }
-        if (attempts > 30) { clearInterval(videoCheckInterval); videoCheckInterval = null; }
-    }, 1000);
-}
-
 function stopRemoteStream() {
+    log('Stopping remote stream and cleaning up', 'info');
     if (currentCall) { try { currentCall.close(); } catch (e) {} currentCall = null; }
     pendingRemoteStream = null;
     remoteVideo.srcObject = null;
@@ -1012,38 +982,35 @@ function stopRemoteStream() {
     videoControls.style.display = 'none';
     playOverlay.classList.remove('show');
     stopStats();
-    if (videoCheckInterval) { clearInterval(videoCheckInterval); videoCheckInterval = null; }
     if (dummyAudioCtx) { try { dummyAudioCtx.close(); } catch (e) {} dummyAudioCtx = null; }
-    // Release wake lock on disconnect
     releaseWakeLock();
     setStatus('', 'Waiting for action');
     toast('Stream disconnected');
 }
 
-$('btnDisconnect').addEventListener('click', stopRemoteStream);
+$('btnDisconnect').addEventListener('click', () => stopRemoteStream());
 
 playOverlay.addEventListener('click', () => {
     if (pendingRemoteStream) {
         remoteVideo.muted = false;
         remoteVideo.play().then(() => {
             playOverlay.classList.remove('show');
-            $('iconAudio').className = 'fa-solid fa-volume-high';
-            $('iconAudio').style.color = '';
-            log('play on click — sound enabled', 'ok');
-        }).catch(e => log('play FAIL: ' + e.message, 'error'));
+            $('iconAudio').className = 'fa-solid fa-volume-high';$('iconAudio').style.color = '';
+            log('Audio enabled via overlay click', 'info');
+        }).catch(e => {});
     }
 });
 
-// ======================== QR SCANNER ========================
 function openQrScanner() {
+    log('Opening QR code scanner', 'info');
     $('qrScannerModalOverlay').classList.add('active');
-    // Request wake lock when QR scanner opens
     requestWakeLock();
     html5QrCode = new Html5Qrcode('qrReader');
     html5QrCode.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 200, height: 200 } },
         (decodedText) => {
             const code = decodedText.trim().replace(/\D/g, '').slice(-4);
             if (code.length === 4) {
+                log('QR code successfully scanned: ' + code, 'ok');
                 closeQrScanner();
                 fillPinInputs(code);
                 connectToCameraHost(code);
@@ -1053,21 +1020,18 @@ function openQrScanner() {
         },
         () => {}
     ).catch((err) => {
-        log('QR FAIL: ' + err, 'error');
-        $('scannerStatus').innerText = 'Camera unavailable';
+        log('QR scanner start failed: ' + err, 'error');
     });
 }
 
 function closeQrScanner() {
+    log('Closing QR scanner', 'info');
     $('qrScannerModalOverlay').classList.remove('active');
     if (html5QrCode) {
         html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => {});
         html5QrCode = null;
     }
-    // Release wake lock when QR scanner closes (unless streaming is active)
-    if (!currentCall && !localStream) {
-        releaseWakeLock();
-    }
+    if (!currentCall && !localStream) releaseWakeLock();
 }
 
 function fillPinInputs(code) {
@@ -1077,28 +1041,43 @@ function fillPinInputs(code) {
     });
 }
 
-// ======================== REMOTE AUDIO / FULLSCREEN ========================
+if (btnPlayPause) {
+    btnPlayPause.addEventListener('click', () => {
+        if (remoteVideo.paused) {
+            remoteVideo.play().then(() => {
+                iconPlayPause.className = 'fa-solid fa-pause';
+                log('Video resumed', 'info');
+            }).catch(e => {});
+        } else {
+            remoteVideo.pause();
+            iconPlayPause.className = 'fa-solid fa-play';
+            log('Video paused', 'info');
+        }
+    });
+}
+
 $('btnMuteAudio').addEventListener('click', () => {
     remoteVideo.muted = !remoteVideo.muted;
     const icon = $('iconAudio');
     if (remoteVideo.muted) {
         icon.className = 'fa-solid fa-volume-xmark';
         icon.style.color = '#f44336';
+        log('Remote audio muted', 'warn');
     } else {
         icon.className = 'fa-solid fa-volume-high';
         icon.style.color = '';
+        log('Remote audio unmuted', 'info');
     }
 });
 
 $('btnFullscreen').addEventListener('click', () => {
+    log('Toggling fullscreen mode', 'info');
     if (remoteVideo.requestFullscreen) remoteVideo.requestFullscreen();
     else if (remoteVideo.webkitRequestFullscreen) remoteVideo.webkitRequestFullscreen();
 });
 
-// ======================== INIT ========================
 checkSecureContext();
-log('Initialization. Protocol: ' + location.protocol, 'info');
-log('remoteVideo initially muted=true — autoplay bypass. Sound enabled after click.', 'info');
+log('Initialization completed. Protocol: ' + location.protocol, 'info');
 </script>
 </body>
 </html>
