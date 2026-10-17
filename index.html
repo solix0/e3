@@ -121,26 +121,61 @@
         .media-label { font-size: 12px; color: var(--text-muted); margin-right: auto; }
         
         .custom-pin-input { 
-            background: var(--bg); color: #fff; border: 1px solid var(--border); 
-            padding: 0; border-radius: 10px; width: 70px; height: 35px; 
-            text-align: center; font-size: 0.8rem; font-weight: 700;
-            outline: none; transition: border-color 0.2s, background 0.2s; 
+            background: var(--bg); 
+            color: #fff; 
+            border: 1px solid var(--border); 
+            padding: 0; 
+            border-radius: 10px; 
+            width: 70px; 
+            height: 35px; 
+            text-align: center; 
+            font-size: 0.8rem; 
+            font-weight: 700;
+            outline: none; 
+            transition: border-color 0.2s, background 0.2s; 
         }
         .custom-pin-input:focus, .custom-pin-input.has-value { 
-            border-color: #fff; background: var(--surface-hover); 
+            border-color: #fff; 
+            background: var(--surface-hover); 
         }
 
-        .log-panel { 
-            background: var(--surface); border: 1px solid var(--border);
-            border-radius: 14px; padding: 14px; font-family: monospace;
-            font-size: 11px; color: var(--text-muted); height: 180px;
-            overflow-y: auto; display: flex; flex-direction: column; gap: 3px;
-            scrollbar-width: thin; scrollbar-color: var(--border) var(--bg);
-        }
-        .log-panel::-webkit-scrollbar { width: 8px; height: 8px; }
-        .log-panel::-webkit-scrollbar-track { background: var(--bg); border-radius: 8px; }
-        .log-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; border: 2px solid var(--bg); }
-        .log-panel::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+.log-panel { 
+    background: var(--surface); 
+    border: 1px solid var(--border);
+    border-radius: 14px; 
+    padding: 14px; 
+    font-family: monospace;
+    font-size: 11px; 
+    color: var(--text-muted); 
+    height: 180px;
+    overflow-y: auto; 
+    display: flex; 
+    flex-direction: column; 
+    gap: 3px;
+    
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) var(--bg);
+}
+
+.log-panel::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.log-panel::-webkit-scrollbar-track {
+    background: var(--bg);
+    border-radius: 8px;
+}
+
+.log-panel::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 8px;
+    border: 2px solid var(--bg);
+}
+
+.log-panel::-webkit-scrollbar-thumb:hover { 
+    background: var(--text-muted); 
+}
         .log-panel .log-error { color: #f44336; }
         .log-panel .log-ok { color: #4CAF50; }
         .log-panel .log-warn { color: #FFA726; }
@@ -224,7 +259,7 @@
     </header>
 
     <div id="insecureBanner" class="insecure-banner">
-        Not HTTPS/localhost — camera <b>will not start</b>. Deploy to <b>GitHub Pages / Vercel / Netlify</b>.[cite: 1]
+        Not HTTPS/localhost — camera <b>will not start</b>. Deploy to <b>GitHub Pages / Vercel / Netlify</b>.
     </div>
 
     <div class="action-bar">
@@ -249,7 +284,7 @@
     </div>
 
     <div class="video-card" id="videoCard">
-        <video id="remoteVideo" autoplay playsinline muted></video>
+        <video id="remoteVideo" autoplay playsinline muted style="display:none;"></video>
         <div id="remotePlaceholder" class="video-placeholder">
             <i class="fa-solid fa-desktop"></i>
             <p>Stream not connected</p>
@@ -400,6 +435,12 @@ let forceRelayMode = false;
 let wakeLock = null;
 let batteryInfoText = 'Battery: N/A';
 
+// Переменные для восстановления после сворачивания
+let wasHostActiveBeforeHidden = false;
+let hostCode = null;
+let isReinitializing = false;
+let trackHealthInterval = null;
+
 const consoleStyledLog = (msg, type = 'info') => {
     let style = 'color: #3b82f6; font-weight: bold;';
     if (type === 'error') style = 'color: #f44336; font-weight: bold; background: rgba(244,67,54,0.1); padding: 2px 4px; border-radius: 3px;';
@@ -411,22 +452,141 @@ const consoleStyledLog = (msg, type = 'info') => {
 async function requestWakeLock() {
     if (!('wakeLock' in navigator)) return;
     try {
+        if (wakeLock !== null) return;
         wakeLock = await navigator.wakeLock.request('screen');
-        wakeLock.addEventListener('release', () => {});
+        wakeLock.addEventListener('release', () => {
+            log('WakeLock released', 'warn');
+        });
     } catch (err) {}
 }
 
 function releaseWakeLock() {
     if (wakeLock !== null) {
-        wakeLock.release().then(() => { wakeLock = null; });
+        wakeLock.release().then(() => { wakeLock = null; }).catch(() => { wakeLock = null; });
     }
 }
 
+// ============================================================
+// ГЛАВНОЕ ИСПРАВЛЕНИЕ: восстановление камеры при возврате на вкладку
+// ============================================================
 document.addEventListener('visibilitychange', async () => {
-    if (wakeLock !== null && document.visibilityState === 'visible') {
-        try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+    if (document.visibilityState === 'visible') {
+        log('App returned to foreground', 'info');
+        
+        // 1. Восстанавливаем WakeLock
+        if (isHostMode || currentCall) {
+            wakeLock = null; // сбрасываем, т.к. браузер его уже релизнул
+            await requestWakeLock();
+        }
+        
+        // 2. Проверяем здоровье локальных треков (если мы host)
+        if (localStream && isHostMode) {
+            const vTrack = localStream.getVideoTracks()[0];
+            const aTrack = localStream.getAudioTracks()[0];
+            const videoDead = !vTrack || vTrack.readyState === 'ended';
+            const audioDead = !aTrack || aTrack.readyState === 'ended';
+            
+            if (videoDead || audioDead) {
+                log('Local tracks ended in background — reinitializing camera', 'warn');
+                toast('Restoring camera...', 'info');
+                await reinitializeCameraForHost();
+            } else {
+                log('Local tracks still alive', 'ok');
+                // Обновляем srcObject на случай, если браузер его сбросил
+                if (remoteVideo.srcObject !== localStream) {
+                    remoteVideo.srcObject = localStream;
+                    remoteVideo.play().catch(() => {});
+                }
+            }
+        }
+        
+        // 3. Если мы viewer и соединение отвалилось — сообщаем
+        if (!isHostMode && currentCall) {
+            const pc = currentCall.peerConnection;
+            if (pc && (pc.connectionState === 'disconnected' || pc.connectionState === 'failed')) {
+                log('Viewer connection lost in background. Please reconnect.', 'error');
+                toast('Connection lost. Reconnect required.', 'error');
+                setStatus('error', 'Reconnect needed');
+            } else if (pendingRemoteStream) {
+                // Перезапускаем видео если оно остановилось
+                if (remoteVideo.srcObject !== pendingRemoteStream) {
+                    remoteVideo.srcObject = pendingRemoteStream;
+                }
+                if (remoteVideo.paused) {
+                    remoteVideo.play().catch(() => {
+                        playOverlay.classList.add('show');
+                    });
+                }
+            }
+        }
+    } else {
+        // Уходим в фон — фиксируем состояние
+        wasHostActiveBeforeHidden = isHostMode;
+        log('App went to background', 'warn');
     }
 });
+
+// Полная переинициализация камеры для host с сохранением соединения
+async function reinitializeCameraForHost() {
+    if (isReinitializing) return;
+    isReinitializing = true;
+    try {
+        const oldStream = localStream;
+        const ok = await initLocalCamera(currentFacingMode, true);
+        if (!ok) {
+            log('Failed to restore camera', 'error');
+            toast('Camera restore failed', 'error');
+            return;
+        }
+        
+        // Если есть активный call — заменяем треки
+        if (currentCall && currentCall.peerConnection) {
+            const pc = currentCall.peerConnection;
+            const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+            const audioSender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+            if (videoSender && localStream.getVideoTracks()[0]) {
+                await videoSender.replaceTrack(localStream.getVideoTracks()[0]);
+            }
+            if (audioSender && localStream.getAudioTracks()[0]) {
+                await audioSender.replaceTrack(localStream.getAudioTracks()[0]);
+            }
+            log('Track replacements sent to viewer', 'ok');
+        }
+        
+        // Останавливаем старые треки
+        if (oldStream) {
+            oldStream.getTracks().forEach(t => { try { t.stop(); } catch(e){} });
+        }
+        
+        log('Camera successfully restored', 'ok');
+        toast('Camera restored', 'success');
+    } finally {
+        isReinitializing = false;
+    }
+}
+
+// Следим за здоровьем треков — если браузер их убил, переинициализируем
+function watchTrackHealth() {
+    if (trackHealthInterval) clearInterval(trackHealthInterval);
+    trackHealthInterval = setInterval(async () => {
+        if (document.visibilityState !== 'visible') return;
+        if (!localStream || !isHostMode) return;
+        if (isReinitializing) return;
+        
+        const vTrack = localStream.getVideoTracks()[0];
+        if (vTrack && vTrack.readyState === 'ended') {
+            log('Detected ended video track — restoring camera', 'warn');
+            await reinitializeCameraForHost();
+        }
+    }, 3000);
+}
+
+function stopTrackHealthWatch() {
+    if (trackHealthInterval) {
+        clearInterval(trackHealthInterval);
+        trackHealthInterval = null;
+    }
+}
 
 const TURN_SERVERS = [
     { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
@@ -564,9 +724,10 @@ function startStats() {
         if (!currentCall || !currentCall.peerConnection) return;
         try {
             const stats = await currentCall.peerConnection.getStats();
-            let inboundVideo = null, candidatePair = null;
+            let inboundVideo = null, inboundAudio = null, candidatePair = null;
             stats.forEach(r => {
                 if (r.type === 'inbound-rtp' && r.kind === 'video') inboundVideo = r;
+                if (r.type === 'inbound-rtp' && r.kind === 'audio') inboundAudio = r;
                 if (r.type === 'candidate-pair' && r.state === 'succeeded') candidatePair = r;
             });
             let html = '';
@@ -603,7 +764,7 @@ async function initBatteryWatcher(conn) {
     } catch (e) {}
 }
 
-async function initLocalCamera(facingMode = 'user') {
+async function initLocalCamera(facingMode = 'user', preserveExisting = false) {
     if (!checkSecureContext()) return false;
     if (!navigator.mediaDevices?.getUserMedia) {
         log('getUserMedia is not supported in this browser', 'error');
@@ -623,8 +784,15 @@ async function initLocalCamera(facingMode = 'user') {
             audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
         });
 
-        if (localStream) {
-            localStream.getTracks().forEach(track => track.stop());
+        // Останавливаем старые треки (кроме случая preserveExisting — тогда мы остановим их позже, после replaceTrack)
+        if (localStream && !preserveExisting) {
+            const oldVideoTrack = localStream.getVideoTracks()[0];
+            const newVideoTrack = stream.getVideoTracks()[0];
+            const oldAudioTrack = localStream.getAudioTracks()[0];
+            const newAudioTrack = stream.getAudioTracks()[0];
+
+            if (oldVideoTrack && newVideoTrack) oldVideoTrack.stop();
+            if (oldAudioTrack && newAudioTrack) oldAudioTrack.stop();
         }
 
         localStream = stream;
@@ -650,13 +818,22 @@ async function initLocalCamera(facingMode = 'user') {
         btnSwitchCam.style.display = 'inline-flex';
         currentFacingMode = facingMode;
 
-        if (isHostMode && currentCall?.peerConnection) {
+        // Если мы host и есть активный call — заменяем треки (кроме случая preserveExisting,
+        // когда это уже сделает reinitializeCameraForHost)
+        if (!preserveExisting && isHostMode && currentCall?.peerConnection) {
             const pc = currentCall.peerConnection;
             const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
             const audioSender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
             if (videoSender && vTracks[0]) await videoSender.replaceTrack(vTracks[0]);
             if (audioSender && stream.getAudioTracks()[0]) await audioSender.replaceTrack(stream.getAudioTracks()[0]);
         }
+
+        // Навешиваем onended на треки, чтобы ловить смерть треков
+        stream.getTracks().forEach(track => {
+            track.addEventListener('ended', () => {
+                log('Track ended: ' + track.kind, 'warn');
+            });
+        });
 
         log('Local camera initialized successfully', 'ok');
         return true;
@@ -736,6 +913,7 @@ btnStartHost.addEventListener('click', async () => {
 
     const customPin = customPinInput ? customPinInput.value.trim() : '';
     const code = /^\d{4}$/.test(customPin) ? customPin : Math.floor(1000 + Math.random() * 9000).toString();
+    hostCode = code;
     const peerId = 'cam-' + code;
 
     log('Hosting session with code: ' + code, 'info');
@@ -752,6 +930,8 @@ btnStartHost.addEventListener('click', async () => {
         const qrEl = $('qrcodeDisplay'); qrEl.innerHTML = '';
         try { new QRCode(qrEl, { text: code, width: 160, height: 160 }); } catch (e) {}
         $('hostModalOverlay').classList.add('active');
+        // Запускаем слежение за треками
+        watchTrackHealth();
     });
 
     peer.on('connection', (conn) => {
@@ -762,7 +942,15 @@ btnStartHost.addEventListener('click', async () => {
     peer.on('call', (call) => {
         try {
             log('Incoming call received, answering...', 'info');
-            call.answer(localStream);
+            // Гарантируем, что у нас живой поток
+            if (!localStream || localStream.getVideoTracks()[0]?.readyState === 'ended') {
+                log('Stream dead at call time — reinitializing before answer', 'warn');
+                initLocalCamera(currentFacingMode).then(() => {
+                    call.answer(localStream);
+                });
+            } else {
+                call.answer(localStream);
+            }
             currentCall = call;
             call.on('close', () => {
                 log('Call closed by remote peer', 'warn');
@@ -895,24 +1083,18 @@ function handleActiveCall(call) {
     call.on('stream', (remoteStream) => {
         log('Remote media stream received', 'ok');
         pendingRemoteStream = remoteStream;
-        
-        remoteVideo.srcObject = remoteStream;
-        remoteVideo.muted = false;
-        remoteVideo.style.display = 'block';
-
-        remoteVideo.play().then(() => {
-            playOverlay.classList.remove('show');
-            log('Remote video playing successfully', 'ok');
-        }).catch((e) => {
-            log('Autoplay blocked, showing overlay: ' + e.message, 'warn');
-            playOverlay.classList.add('show');
-        });
+        attachStreamToRemote(remoteStream);
 
         remotePlaceholder.style.display = 'none';
         liveBadge.style.display = 'flex';
         liveBadgeText.textContent = 'Live';
         videoControls.style.display = 'flex';
         setStatus('online', 'Stream active');
+
+        const pp = remoteVideo.play();
+        if (pp && pp.catch) {
+            pp.catch(() => { playOverlay.classList.add('show'); });
+        }
 
         closeConnectModal();
         toast('Connection established!', 'success');
@@ -926,6 +1108,15 @@ function handleActiveCall(call) {
     });
 }
 
+function attachStreamToRemote(stream) {
+    remoteVideo.srcObject = null;
+    setTimeout(() => {
+        remoteVideo.srcObject = stream;
+        remoteVideo.style.display = 'block';
+        remoteVideo.play().catch(e => {});
+    }, 120);
+}
+
 function stopRemoteStream() {
     log('Stopping remote stream and cleaning up', 'info');
     if (currentCall) { try { currentCall.close(); } catch (e) {} currentCall = null; }
@@ -937,6 +1128,7 @@ function stopRemoteStream() {
     videoControls.style.display = 'none';
     playOverlay.classList.remove('show');
     stopStats();
+    stopTrackHealthWatch();
     if (dummyAudioCtx) { try { dummyAudioCtx.close(); } catch (e) {} dummyAudioCtx = null; }
     releaseWakeLock();
     setStatus('', 'Waiting for action');
@@ -990,7 +1182,6 @@ function closeQrScanner() {
 }
 
 function fillPinInputs(code) {
-    pinInputs.exceptions = true;
     pinInputs.forEach((input, i) => {
         input.value = code[i] || '';
         if (code[i]) input.classList.add('has-value');
