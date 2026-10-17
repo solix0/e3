@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -56,11 +56,11 @@
         .btn-sm { padding: 8px 12px; font-size: 12px; }
         .btn.active { background: rgba(59,130,246,0.2); border-color: var(--accent); color: var(--accent); }
 
-        .video-viewports { display: grid; grid-template-columns: 1fr; gap: 20px; }
+        /* Main video card — single screen */
         .video-card { background: var(--surface); border: 1px solid var(--border);
-            border-radius: 16px; overflow: hidden; position: relative; min-height: 380px;
+            border-radius: 16px; overflow: hidden; position: relative; min-height: 480px;
             display: flex; align-items: center; justify-content: center; background-color: #000; }
-        video { width: 100%; height: 100%; max-height: 520px; object-fit: contain; display: block; }
+        video { width: 100%; height: 100%; max-height: 600px; object-fit: contain; display: block; }
 
         .video-placeholder { display: flex; flex-direction: column; align-items: center;
             justify-content: center; gap: 12px; color: var(--text-muted);
@@ -100,18 +100,18 @@
             color: var(--text-main); z-index: 10; display: none; line-height: 1.5; }
         .stats-panel.show { display: block; }
 
-        .local-preview-card { background: var(--surface); border: 1px solid var(--border);
-            border-radius: 14px; padding: 16px; display: flex; align-items: center;
-            justify-content: space-between; gap: 16px; }
-        .local-video-wrapper { width: 140px; height: 90px; background: #000;
-            border-radius: 10px; overflow: hidden; border: 1px solid var(--border);
-            position: relative; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
-        .local-video-wrapper video { width: 100%; height: 100%; object-fit: cover; }
-        .local-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+        /* Local media controls bar (mic, cam, switch) */
+        .local-media-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 14px; padding: 12px 16px; }
+        .local-media-bar .btn-sm { padding: 8px 14px; }
+        .local-media-bar .btn.active { background: rgba(59,130,246,0.2); border-color: var(--accent); color: var(--accent); }
+        .local-media-bar .btn.muted { color: #f44336; border-color: rgba(244,67,54,0.3); }
+        .media-label { font-size: 12px; color: var(--text-muted); margin-right: auto; }
 
         .log-panel { background: var(--surface); border: 1px solid var(--border);
             border-radius: 14px; padding: 14px; font-family: monospace;
-            font-size: 11px; color: var(--text-muted); height: 220px;
+            font-size: 11px; color: var(--text-muted); height: 180px;
             overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
         .log-panel .log-error { color: #f44336; }
         .log-panel .log-ok { color: #4CAF50; }
@@ -167,9 +167,11 @@
 
         @media (max-width: 600px) {
             .action-bar { grid-template-columns: 1fr; }
-            .local-preview-card { flex-direction: column; align-items: stretch; }
-            .local-video-wrapper { width: 100%; height: 140px; }
             .stats-panel { font-size: 10px; }
+            .video-card { min-height: 300px; }
+            video { max-height: 400px; }
+            .local-media-bar { justify-content: center; }
+            .media-label { display: none; }
         }
     </style>
 </head>
@@ -180,92 +182,81 @@
         <div class="logo"><i class="fa-solid fa-video"></i><span>P2P CamStream</span></div>
         <div class="status-badge">
             <span id="statusDot" class="status-dot"></span>
-            <span id="statusText">Ожидание действий</span>
+            <span id="statusText">Waiting for action</span>
         </div>
     </header>
 
     <div id="insecureBanner" class="insecure-banner">
-        ⚠️ Не HTTPS/localhost — камера <b>не запустится</b>. Залейте на <b>GitHub Pages / Vercel / Netlify</b>.
+        Not HTTPS/localhost — camera <b>will not start</b>. Deploy to <b>GitHub Pages / Vercel / Netlify</b>.
     </div>
 
     <div class="action-bar">
         <button id="btnStartHost" class="btn btn-primary">
-            <i class="fa-solid fa-camera"></i><span>Дать доступ к камере</span>
+            <i class="fa-solid fa-camera"></i><span>Share camera</span>
         </button>
         <button id="btnOpenConnect" class="btn">
-            <i class="fa-solid fa-plug"></i><span>Подключиться к камере</span>
+            <i class="fa-solid fa-plug"></i><span>Connect to camera</span>
         </button>
     </div>
 
     <div class="action-bar" style="grid-template-columns: 1fr 1fr 1fr;">
         <button id="btnTestNat" class="btn btn-sm">
-            <i class="fa-solid fa-network-wired"></i><span>Тест NAT</span>
+            <i class="fa-solid fa-network-wired"></i><span>NAT test</span>
         </button>
         <button id="btnForceRelay" class="btn btn-sm">
-            <i class="fa-solid fa-tower-broadcast"></i><span>Режим relay</span>
+            <i class="fa-solid fa-tower-broadcast"></i><span>Relay mode</span>
         </button>
         <button id="btnToggleStats" class="btn btn-sm">
-            <i class="fa-solid fa-chart-line"></i><span>Статистика</span>
+            <i class="fa-solid fa-chart-line"></i><span>Stats</span>
         </button>
     </div>
 
-    <div class="video-viewports">
-        <div class="video-card" id="videoCard">
-            <video id="remoteVideo" autoplay playsinline muted style="display:none;"></video>
-            <div id="remotePlaceholder" class="video-placeholder">
-                <i class="fa-solid fa-desktop"></i>
-                <p>Трансляция не подключена</p>
-                <span style="font-size: 12px; color: var(--text-muted);">
-                    Телефон: «Дать доступ» → ПК: «Подключиться» → код.
-                </span>
-            </div>
-            <div id="playOverlay" class="play-overlay">
-                <i class="fa-solid fa-play"></i>
-                <span>Нажмите для включения звука и видео</span>
-            </div>
-            <div id="liveBadge" class="live-badge" style="display: none;">
-                <span class="live-dot"></span>
-                <span id="liveBadgeText">Прямой эфир</span>
-            </div>
-            <div id="statsPanel" class="stats-panel"></div>
-            <div id="videoControls" class="video-overlay-controls" style="display: none;">
-                <button id="btnMuteAudio" class="control-btn" title="Звук">
-                    <i id="iconAudio" class="fa-solid fa-volume-xmark"></i>
-                </button>
-                <button id="btnFullscreen" class="control-btn" title="Полный экран">
-                    <i class="fa-solid fa-expand"></i>
-                </button>
-                <button id="btnDisconnect" class="control-btn" style="color: #f44336;" title="Отключиться">
-                    <i class="fa-solid fa-power-off"></i>
-                </button>
-            </div>
+    <!-- SINGLE CAMERA OUTPUT SCREEN -->
+    <div class="video-card" id="videoCard">
+        <video id="remoteVideo" autoplay playsinline muted style="display:none;"></video>
+        <div id="remotePlaceholder" class="video-placeholder">
+            <i class="fa-solid fa-desktop"></i>
+            <p>Stream not connected</p>
         </div>
+        <div id="playOverlay" class="play-overlay">
+            <i class="fa-solid fa-play"></i>
+            <span>Click to enable audio and video</span>
+        </div>
+        <div id="liveBadge" class="live-badge" style="display: none;">
+            <span class="live-dot"></span>
+            <span id="liveBadgeText">Live</span>
+        </div>
+        <div id="statsPanel" class="stats-panel"></div>
+        <div id="videoControls" class="video-overlay-controls" style="display: none;">
+            <button id="btnMuteAudio" class="control-btn" title="Sound">
+                <i id="iconAudio" class="fa-solid fa-volume-xmark"></i>
+            </button>
+            <button id="btnFullscreen" class="control-btn" title="Fullscreen">
+                <i class="fa-solid fa-expand"></i>
+            </button>
+            <button id="btnDisconnect" class="control-btn" style="color: #f44336;" title="Disconnect">
+                <i class="fa-solid fa-power-off"></i>
+            </button>
+        </div>
+    </div>
 
-        <div class="local-preview-card">
-            <div class="local-video-wrapper">
-                <video id="localVideo" autoplay playsinline muted style="display: none;"></video>
-                <i id="localPlaceholderIcon" class="fa-solid fa-video-slash" style="color: var(--text-muted); font-size: 20px;"></i>
-            </div>
-            <div style="flex: 1;">
-                <h4 style="font-size: 15px; font-weight: 600; margin-bottom: 4px;">Локальная камера</h4>
-                <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px;">Предпросмотр вашего видеосигнала</p>
-                <div class="local-controls">
-                    <button id="btnToggleMic" disabled class="btn btn-sm">
-                        <i class="fa-solid fa-microphone"></i> <span id="micText">Микрофон</span>
-                    </button>
-                    <button id="btnToggleCam" disabled class="btn btn-sm">
-                        <i class="fa-solid fa-video"></i> <span id="camText">Камера</span>
-                    </button>
-                    <button id="btnSwitchCam" class="btn btn-sm" style="display:none;">
-                        <i class="fa-solid fa-camera-rotate"></i> <span>Сменить камеру</span>
-                    </button>
-                </div>
-            </div>
-        </div>
+    <!-- LOCAL MEDIA CONTROLS: mic, camera on/off, switch camera -->
+    <div class="local-media-bar" id="localMediaBar" style="display: none;">
+        <span class="media-label"><i class="fa-solid fa-sliders"></i> Local media</span>
+        <button id="btnToggleMic" class="btn btn-sm" disabled>
+            <i class="fa-solid fa-microphone"></i> <span id="micText">Mic On</span>
+        </button>
+        <button id="btnToggleCam" class="btn btn-sm" disabled>
+            <i class="fa-solid fa-video"></i> <span id="camText">Cam On</span>
+        </button>
+        <button id="btnSwitchCam" class="btn btn-sm" style="display:none;">
+            <i class="fa-solid fa-camera-rotate"></i> <span>Switch</span>
+        </button>
+    </div>
 
-        <div class="log-panel" id="logContainer">
-            <div>[Система]: Готов к работе.</div>
-        </div>
+    <!-- Log panel (below the video) -->
+    <div class="log-panel" id="logContainer">
+        <div>[System]: Ready.</div>
     </div>
 </div>
 
@@ -275,14 +266,14 @@
 <div class="modal-overlay" id="hostModalOverlay">
     <div class="modal-box">
         <div class="modal-content">
-            <div class="modal-title">Камера готова к трансляции</div>
-            <div class="modal-text">Введите код или отсканируйте QR на ПК:</div>
+            <div class="modal-title">Camera ready to stream</div>
+            <div class="modal-text">Enter the code or scan the QR on your PC:</div>
             <div class="code-box-modal" id="displayHostCode">----</div>
             <div id="qrcodeDisplay" style="display: flex; justify-content: center; margin-bottom: 12px;"></div>
-            <div class="modal-text" id="hostStatusBadge" style="font-size: 13px;">Ожидание подключения...</div>
+            <div class="modal-text" id="hostStatusBadge" style="font-size: 13px;">Waiting for viewer...</div>
         </div>
         <div class="modal-actions">
-            <button class="modal-btn" onclick="closeHostModal()">Закрыть</button>
+            <button class="modal-btn" onclick="closeHostModal()">Close</button>
         </div>
     </div>
 </div>
@@ -291,8 +282,8 @@
 <div class="modal-overlay" id="connectModalOverlay">
     <div class="modal-box">
         <div class="modal-content">
-            <div class="modal-title">Подключение к камере</div>
-            <div class="modal-text">Введите 4-значный код или отсканируйте QR:</div>
+            <div class="modal-title">Connect to camera</div>
+            <div class="modal-text">Enter the 4-digit code or scan the QR:</div>
             <div class="pin-inputs" id="pinInputsContainer">
                 <input type="text" maxlength="1" class="pin-input" inputmode="numeric">
                 <input type="text" maxlength="1" class="pin-input" inputmode="numeric">
@@ -300,12 +291,12 @@
                 <input type="text" maxlength="1" class="pin-input" inputmode="numeric">
             </div>
             <button class="btn" style="width: 100%;" onclick="openQrScanner()">
-                <i class="fa-solid fa-qrcode"></i> Сканировать QR
+                <i class="fa-solid fa-qrcode"></i> Scan QR
             </button>
             <div class="modal-text" id="connectStatusBadge" style="font-size: 13px; margin-top: 12px;"></div>
         </div>
         <div class="modal-actions">
-            <button class="modal-btn" onclick="closeConnectModal()">Отмена</button>
+            <button class="modal-btn" onclick="closeConnectModal()">Cancel</button>
         </div>
     </div>
 </div>
@@ -314,13 +305,13 @@
 <div class="modal-overlay" id="qrScannerModalOverlay">
     <div class="modal-box">
         <div class="modal-content">
-            <div class="modal-title">Сканирование QR</div>
-            <div class="modal-text" style="margin-bottom: 12px;">Наведите камеру на QR-код</div>
+            <div class="modal-title">Scan QR Code</div>
+            <div class="modal-text" style="margin-bottom: 12px;">Point your camera at the QR code</div>
             <div id="qrReader" style="width: 100%; border-radius: 10px; overflow: hidden; background: #000;"></div>
             <div class="modal-text" id="scannerStatus" style="font-size: 13px; margin-top: 10px;"></div>
         </div>
         <div class="modal-actions">
-            <button class="modal-btn" onclick="closeQrScanner()">Закрыть</button>
+            <button class="modal-btn" onclick="closeQrScanner()">Close</button>
         </div>
     </div>
 </div>
@@ -371,14 +362,15 @@ function buildPeerOptions() {
 const $ = id => document.getElementById(id);
 const btnStartHost = $('btnStartHost'), btnOpenConnect = $('btnOpenConnect');
 const btnTestNat = $('btnTestNat'), btnForceRelay = $('btnForceRelay'), btnToggleStats = $('btnToggleStats');
-const remoteVideo = $('remoteVideo'), localVideo = $('localVideo');
-const remotePlaceholder = $('remotePlaceholder'), localPlaceholderIcon = $('localPlaceholderIcon');
+const remoteVideo = $('remoteVideo');
+const remotePlaceholder = $('remotePlaceholder');
 const liveBadge = $('liveBadge'), liveBadgeText = $('liveBadgeText');
 const videoControls = $('videoControls'), statusDot = $('statusDot'), statusText = $('statusText');
 const logContainer = $('logContainer'), playOverlay = $('playOverlay'), videoCard = $('videoCard');
 const insecureBanner = $('insecureBanner'), statsPanel = $('statsPanel');
 const btnToggleMic = $('btnToggleMic'), btnToggleCam = $('btnToggleCam'), btnSwitchCam = $('btnSwitchCam');
 const micText = $('micText'), camText = $('camText');
+const localMediaBar = $('localMediaBar');
 
 // ======================== HELPERS ========================
 function toast(msg, type = 'info') {
@@ -414,27 +406,27 @@ function isSecure() {
 }
 
 function checkSecureContext() {
-    if (!isSecure()) { insecureBanner.classList.add('show'); log('НЕ HTTPS/localhost!', 'error'); return false; }
+    if (!isSecure()) { insecureBanner.classList.add('show'); log('NOT HTTPS/localhost!', 'error'); return false; }
     insecureBanner.classList.remove('show'); return true;
 }
 
 // ======================== NAT TEST ========================
 async function testNat() {
-    log('=== Тест NAT/STUN ===', 'info');
+    log('=== NAT/STUN test ===', 'info');
     try {
         const pc = new RTCPeerConnection({ iceServers: STUN_SERVERS });
         pc.createDataChannel('probe');
         pc.onicecandidate = (e) => {
             if (!e.candidate) { pc.close(); return; }
             const c = e.candidate.candidate;
-            if (c.includes(' typ host')) log('  host — ок', 'ok');
-            if (c.includes(' typ srflx')) log('  srflx — ок', 'ok');
-            if (c.includes(' typ relay')) log('  relay — ок', 'ok');
+            if (c.includes(' typ host')) log('  host — ok', 'ok');
+            if (c.includes(' typ srflx')) log('  srflx — ok', 'ok');
+            if (c.includes(' typ relay')) log('  relay — ok', 'ok');
         };
         await pc.setLocalDescription(await pc.createOffer());
-        log('Ждём ICE-кандидаты (3с)...', 'info');
+        log('Waiting for ICE candidates (3s)...', 'info');
         setTimeout(() => { try { pc.close(); } catch(e){} }, 3000);
-    } catch (e) { log('Тест NAT: ' + e.message, 'error'); }
+    } catch (e) { log('NAT test: ' + e.message, 'error'); }
 }
 btnTestNat.addEventListener('click', testNat);
 
@@ -442,8 +434,8 @@ btnTestNat.addEventListener('click', testNat);
 btnForceRelay.addEventListener('click', () => {
     forceRelayMode = !forceRelayMode;
     btnForceRelay.classList.toggle('active', forceRelayMode);
-    log(`Режим relay: ${forceRelayMode ? 'ВКЛ' : 'выкл'}`, forceRelayMode ? 'warn' : 'info');
-    toast(forceRelayMode ? 'Relay: только через TURN' : 'P2P: прямой канал');
+    log(`Relay mode: ${forceRelayMode ? 'ON' : 'OFF'}`, forceRelayMode ? 'warn' : 'info');
+    toast(forceRelayMode ? 'Relay: TURN only' : 'P2P: direct channel');
 });
 
 // ======================== STATS ========================
@@ -467,16 +459,16 @@ function startStats() {
             });
             let html = '';
             if (inboundVideo) {
-                html += `📥 VIDEO: ${inboundVideo.frameWidth || 0}×${inboundVideo.frameHeight || 0}<br>`;
-                html += `🎞 кадров: ${inboundVideo.framesDecoded || 0}<br>`;
-                html += `📶 ${inboundVideo.bytesReceived || 0} байт<br>`;
+                html += `VIDEO: ${inboundVideo.frameWidth || 0}×${inboundVideo.frameHeight || 0}<br>`;
+                html += `frames: ${inboundVideo.framesDecoded || 0}<br>`;
+                html += `${inboundVideo.bytesReceived || 0} bytes<br>`;
             } else {
-                html += `❌ VIDEO: нет inbound-rtp<br>`;
+                html += `❌ VIDEO: no inbound-rtp<br>`;
             }
             if (inboundAudio) {
-                html += `🔊 AUDIO: ${inboundAudio.bytesReceived || 0} байт<br>`;
+                html += `AUDIO: ${inboundAudio.bytesReceived || 0} bytes<br>`;
             } else {
-                html += `❌ AUDIO: нет<br>`;
+                html += `❌ AUDIO: none<br>`;
             }
             html += `🔗 ${candidatePair ? candidatePair.state : '—'}`;
             statsPanel.innerHTML = html;
@@ -488,7 +480,7 @@ function stopStats() { if (statsInterval) { clearInterval(statsInterval); statsI
 // ======================== LOCAL MEDIA ========================
 async function initLocalCamera(facingMode = 'user') {
     if (!checkSecureContext()) return false;
-    if (!navigator.mediaDevices?.getUserMedia) { log('getUserMedia не поддерживается', 'error'); return false; }
+    if (!navigator.mediaDevices?.getUserMedia) { log('getUserMedia not supported', 'error'); return false; }
 
     try {
         log(`getUserMedia (facingMode=${facingMode})...`, 'info');
@@ -497,19 +489,19 @@ async function initLocalCamera(facingMode = 'user') {
             audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
         });
 
-        // Стоп старых
+        // Stop old tracks
         if (localStream) localStream.getTracks().forEach(t => t.stop());
         localStream = stream;
 
-        // ВАЖНО: проверяем ОБА трека — если видео нет, дальше не идём
+        // IMPORTANT: check BOTH tracks — if no video, stop
         const vTracks = stream.getVideoTracks();
         const aTracks = stream.getAudioTracks();
-        log(`Захвачено треков: video=${vTracks.length}, audio=${aTracks.length}`,
+        log(`Captured tracks: video=${vTracks.length}, audio=${aTracks.length}`,
             vTracks.length ? 'ok' : 'error');
 
         if (vTracks.length === 0) {
-            log('❌ ВИДЕО-ТРЕК ОТСУТСТВУЕТ — трансляция невозможна!', 'error');
-            toast('Нет видео-трека! Разрешите доступ к камере.', 'error');
+            log('❌ NO VIDEO TRACK — streaming impossible!', 'error');
+            toast('No video track! Allow camera access.', 'error');
             return false;
         }
 
@@ -521,36 +513,45 @@ async function initLocalCamera(facingMode = 'user') {
             log(`  audio[${i}]: ${t.label} | enabled=${t.enabled} | readyState=${t.readyState}`, 'ok');
         });
 
-        localVideo.srcObject = stream;
-        localVideo.style.display = 'block';
-        localVideo.play().catch(e => log('local.play: ' + e.message, 'warn'));
-        localPlaceholderIcon.style.display = 'none';
+        // Show local preview in the main video element
+        remoteVideo.srcObject = stream;
+        remoteVideo.muted = true;
+        remoteVideo.style.display = 'block';
+        remoteVideo.play().catch(e => log('local.play: ' + e.message, 'warn'));
+        remotePlaceholder.style.display = 'none';
 
-        // Индикатор в предпросмотре
-        setTimeout(() => {
-            if (localVideo.videoWidth > 0) {
-                log(`✓ Локальное видео декодируется: ${localVideo.videoWidth}×${localVideo.videoHeight}`, 'ok');
-            } else {
-                log('⚠ Локальное videoWidth=0 — камера реально не отдаёт кадры', 'error');
-            }
-        }, 800);
+        // Reset state flags
+        isMicMuted = false;
+        isCamStopped = false;
+        updateLocalMediaUI();
 
+        // Enable local media controls
+        localMediaBar.style.display = 'flex';
         btnToggleMic.disabled = false;
         btnToggleCam.disabled = false;
         btnSwitchCam.style.display = 'inline-flex';
         currentFacingMode = facingMode;
 
-        // Замена трека в активном звонке (смена камеры)
+        // Indicator in preview
+        setTimeout(() => {
+            if (remoteVideo.videoWidth > 0) {
+                log(`✓ Local video decoding: ${remoteVideo.videoWidth}×${remoteVideo.videoHeight}`, 'ok');
+            } else {
+                log('⚠ Local videoWidth=0 — camera is not delivering frames', 'error');
+            }
+        }, 800);
+
+        // Replace track in active call (camera switch)
         if (isHostMode && currentCall?.peerConnection) {
             const pc = currentCall.peerConnection;
             const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
             const audioSender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
             if (videoSender && vTracks[0]) {
-                try { await videoSender.replaceTrack(vTracks[0]); log('Видео-трек заменён в звонке', 'ok'); }
+                try { await videoSender.replaceTrack(vTracks[0]); log('Video track replaced in call', 'ok'); }
                 catch (e) { log('replaceTrack video: ' + e.message, 'error'); }
             }
             if (audioSender && aTracks[0]) {
-                try { await audioSender.replaceTrack(aTracks[0]); log('Аудио-трек заменён в звонке', 'ok'); }
+                try { await audioSender.replaceTrack(aTracks[0]); log('Audio track replaced in call', 'ok'); }
                 catch (e) { log('replaceTrack audio: ' + e.message, 'error'); }
             }
         }
@@ -558,16 +559,70 @@ async function initLocalCamera(facingMode = 'user') {
         return true;
     } catch (err) {
         log(`getUserMedia FAIL: ${err.name} — ${err.message}`, 'error');
-        toast('Камера: ' + err.name, 'error');
+        toast('Camera: ' + err.name, 'error');
         return false;
     }
 }
+
+// Update mic/cam button labels and styles based on current state
+function updateLocalMediaUI() {
+    if (isMicMuted) {
+        micText.textContent = 'Mic Off';
+        btnToggleMic.classList.add('muted');
+        btnToggleMic.querySelector('i').className = 'fa-solid fa-microphone-slash';
+    } else {
+        micText.textContent = 'Mic On';
+        btnToggleMic.classList.remove('muted');
+        btnToggleMic.querySelector('i').className = 'fa-solid fa-microphone';
+    }
+
+    if (isCamStopped) {
+        camText.textContent = 'Cam Off';
+        btnToggleCam.classList.add('muted');
+        btnToggleCam.querySelector('i').className = 'fa-solid fa-video-slash';
+    } else {
+        camText.textContent = 'Cam On';
+        btnToggleCam.classList.remove('muted');
+        btnToggleCam.querySelector('i').className = 'fa-solid fa-video';
+    }
+}
+
+// ======================== MIC / CAM / SWITCH CONTROLS ========================
+btnToggleMic.addEventListener('click', () => {
+    if (!localStream) return;
+    const track = localStream.getAudioTracks()[0];
+    if (track) {
+        isMicMuted = !isMicMuted;
+        track.enabled = !isMicMuted;
+        updateLocalMediaUI();
+        log(`Microphone ${isMicMuted ? 'OFF' : 'ON'}`, 'info');
+        toast(isMicMuted ? 'Microphone muted' : 'Microphone enabled');
+    }
+});
+
+btnToggleCam.addEventListener('click', () => {
+    if (!localStream) return;
+    const track = localStream.getVideoTracks()[0];
+    if (track) {
+        isCamStopped = !isCamStopped;
+        track.enabled = !isCamStopped;
+        updateLocalMediaUI();
+        log(`Camera ${isCamStopped ? 'OFF' : 'ON'}`, 'info');
+        toast(isCamStopped ? 'Camera disabled' : 'Camera enabled');
+    }
+});
+
+btnSwitchCam.addEventListener('click', async () => {
+    const next = currentFacingMode === 'user' ? 'environment' : 'user';
+    log('Switching camera to ' + next, 'info');
+    await initLocalCamera(next);
+});
 
 // ======================== HOST ========================
 btnStartHost.addEventListener('click', async () => {
     const ready = await initLocalCamera(currentFacingMode);
     if (!ready) {
-        toast('Не удалось захватить видео — трансляция не запущена', 'error');
+        toast('Failed to capture video — stream not started', 'error');
         return;
     }
 
@@ -576,36 +631,34 @@ btnStartHost.addEventListener('click', async () => {
     const peerId = 'cam-' + code;
 
     if (peer) { try { peer.destroy(); } catch (e) {} }
-    setStatus('connecting', 'Создание сессии...');
+    setStatus('connecting', 'Creating session...');
     peer = new Peer(peerId, buildPeerOptions());
 
     peer.on('open', (id) => {
-        setStatus('online', 'Трансляция готова');
-        log(`✓ Сессия: ${id} | Код: ${code}`, 'ok');
+        setStatus('online', 'Stream ready');
+        log(`✓ Session: ${id} | Code: ${code}`, 'ok');
         $('displayHostCode').innerText = code;
-        $('hostStatusBadge').innerText = 'Ожидание зрителя...';
+        $('hostStatusBadge').innerText = 'Waiting for viewer...';
         const qrEl = $('qrcodeDisplay'); qrEl.innerHTML = '';
         try { new QRCode(qrEl, { text: code, width: 160, height: 160 }); } catch (e) {}
         $('hostModalOverlay').classList.add('active');
     });
 
     peer.on('call', (call) => {
-        log('📞 Входящий вызов — отвечаю', 'info');
+        log('Incoming call — answering', 'info');
 
-        // КРИТИЧНО: убеждаемся, что localStream содержит видео
+        // CRITICAL: ensure localStream has video
         const vTracks = localStream?.getVideoTracks() || [];
         if (vTracks.length === 0) {
-            log('❌ Нет видео-трека при ответе — зритель увидит чёрный экран!', 'error');
-            toast('Нет видео-трека!', 'error');
+            log('❌ No video track when answering — viewer will see black screen!', 'error');
+            toast('No video track!', 'error');
             return;
         }
 
         try {
-            // Отвечаем и проверяем SDP
             call.answer(localStream);
             currentCall = call;
 
-            // Диагностика SDP
             setTimeout(() => {
                 try {
                     const pc = call.peerConnection;
@@ -615,13 +668,11 @@ btnStartHost.addEventListener('click', async () => {
                     const hasAudio = localDesc.includes('m=audio');
                     log(`[host] SDP: video=${hasVideo ? '✓' : '❌'}, audio=${hasAudio ? '✓' : '❌'}`, hasVideo ? 'ok' : 'error');
 
-                    // Проверяем senders
                     const senders = pc.getSenders();
                     senders.forEach(s => {
                         log(`[host] sender: ${s.track?.kind || 'null'} — ${s.track?.label || ''}`, 'info');
                     });
 
-                    // Приоритет H.264 (обход конфликта кодеков)
                     tryPrioritizeH264(pc);
                 } catch (e) { log('SDP diag: ' + e.message, 'warn'); }
             }, 500);
@@ -629,15 +680,15 @@ btnStartHost.addEventListener('click', async () => {
             attachCallDebug(call, 'host');
 
             call.on('close', () => {
-                log('Зритель отключился', 'warn');
+                log('Viewer disconnected', 'warn');
                 currentCall = null;
-                if (isHostMode) { showLocalInMain(); setStatus('online', 'Ожидание зрителя'); }
+                if (isHostMode) { showLocalInMain(); setStatus('online', 'Waiting for viewer'); }
             });
             call.on('error', (err) => log('call error: ' + (err.message || err.type), 'error'));
 
             closeHostModal();
-            toast('Зритель подключился!', 'success');
-            setStatus('online', 'Трансляция активна');
+            toast('Viewer connected!', 'success');
+            setStatus('online', 'Stream active');
             showLocalInMain();
         } catch (e) {
             log('answer FAIL: ' + e.message, 'error');
@@ -646,7 +697,7 @@ btnStartHost.addEventListener('click', async () => {
 
     peer.on('error', (err) => {
         log(`Peer error: ${err.type} — ${err.message || ''}`, 'error');
-        setStatus('error', 'Ошибка P2P');
+        setStatus('error', 'P2P error');
     });
 });
 
@@ -660,12 +711,12 @@ function showLocalInMain() {
     remoteVideo.play().catch(e => log('host play: ' + e.message, 'warn'));
     remotePlaceholder.style.display = 'none';
     liveBadge.style.display = 'flex';
-    liveBadgeText.textContent = 'Ваша камера (хост)';
+    liveBadgeText.textContent = 'Your camera (host)';
     videoControls.style.display = 'flex';
     playOverlay.classList.remove('show');
 }
 
-// Приоритет H.264 для совместимости телефон↔ПК
+// Prioritize H.264 for phone↔PC compatibility
 async function tryPrioritizeH264(pc) {
     try {
         const transceivers = pc.getTransceivers();
@@ -677,7 +728,7 @@ async function tryPrioritizeH264(pc) {
                         const h264 = caps.codecs.filter(c => c.mimeType.includes('H264'));
                         const rest = caps.codecs.filter(c => !c.mimeType.includes('H264'));
                         if (h264.length) {
-                            try { t.setCodecPreferences([...h264, ...rest]); log('H.264 приоритет установлен', 'ok'); }
+                            try { t.setCodecPreferences([...h264, ...rest]); log('H.264 priority set', 'ok'); }
                             catch (e) { log('setCodecPreferences: ' + e.message, 'warn'); }
                         }
                     }
@@ -734,36 +785,36 @@ async function createDummyAudioStream() {
     gain.gain.value = 0;
     const dst = dummyAudioCtx.createMediaStreamDestination();
     osc.connect(gain); gain.connect(dst); osc.start();
-    log('Dummy-аудио готово', 'info');
+    log('Dummy audio ready', 'info');
     return dst.stream;
 }
 
 async function connectToCameraHost(code) {
     const statusEl = $('connectStatusBadge');
-    statusEl.innerText = 'Подключение...';
-    setStatus('connecting', 'Подключение...');
+    statusEl.innerText = 'Connecting...';
+    setStatus('connecting', 'Connecting...');
     isHostMode = false;
     const targetPeerId = 'cam-' + code;
     if (peer) { try { peer.destroy(); } catch (e) {} }
 
     let outgoingStream;
     try { outgoingStream = localStream || await createDummyAudioStream(); }
-    catch (e) { log('Исходящий FAIL: ' + e.message, 'error'); return; }
+    catch (e) { log('Outgoing FAIL: ' + e.message, 'error'); return; }
 
     peer = new Peer(buildPeerOptions());
 
     peer.on('open', () => {
-        log(`📞 Вызываю ${targetPeerId} (policy: ${forceRelayMode ? 'relay' : 'all'})`, 'info');
+        log(`Calling ${targetPeerId} (policy: ${forceRelayMode ? 'relay' : 'all'})`, 'info');
         let call;
         try { call = peer.call(targetPeerId, outgoingStream); }
         catch (e) { log('peer.call FAIL: ' + e.message, 'error'); return; }
-        if (!call) { statusEl.innerText = 'Не удалось вызвать'; return; }
+        if (!call) { statusEl.innerText = 'Call failed'; return; }
         handleActiveCall(call);
     });
 
     peer.on('error', (err) => {
-        statusEl.innerText = 'Камера не найдена или код неверный';
-        setStatus('error', 'Ошибка');
+        statusEl.innerText = 'Camera not found or wrong code';
+        setStatus('error', 'Error');
         log(`Peer error: ${err.type} — ${err.message || ''}`, 'error');
     });
 }
@@ -771,7 +822,7 @@ async function connectToCameraHost(code) {
 // ======================== CALL DEBUG ========================
 function attachCallDebug(call, who) {
     const pc = call.peerConnection;
-    if (!pc) { log(`[${who}] нет pc для debug`, 'warn'); return; }
+    if (!pc) { log(`[${who}] no pc for debug`, 'warn'); return; }
     pc.addEventListener('iceconnectionstatechange', () => {
         const st = pc.iceConnectionState;
         const bad = st === 'failed' || st === 'disconnected';
@@ -791,21 +842,21 @@ function attachCallDebug(call, who) {
     });
 }
 
-// ======================== CALL HANDLER (зритель) ========================
+// ======================== CALL HANDLER (viewer) ========================
 function handleActiveCall(call) {
     currentCall = call;
     attachCallDebug(call, 'viewer');
 
     call.on('stream', (remoteStream) => {
-        log(`✓ ПОЛУЧЕН ПОТОК. Треков: ${remoteStream.getTracks().length}`, 'ok');
+        log(`✓ STREAM RECEIVED. Tracks: ${remoteStream.getTracks().length}`, 'ok');
         const vTracks = remoteStream.getVideoTracks();
         const aTracks = remoteStream.getAudioTracks();
         log(`  video: ${vTracks.length}, audio: ${aTracks.length}`,
             vTracks.length ? 'ok' : 'error');
 
         if (vTracks.length === 0) {
-            log('❌ В ПОТОКЕ НЕТ ВИДЕО-ТРЕКА. Хост не отправил видео!', 'error');
-            toast('Хост не отправил видео — проверьте камеру телефона', 'error');
+            log('❌ NO VIDEO TRACK IN STREAM. Host did not send video!', 'error');
+            toast('Host did not send video — check phone camera', 'error');
         }
 
         remoteStream.getTracks().forEach(t => {
@@ -817,11 +868,10 @@ function handleActiveCall(call) {
 
         remotePlaceholder.style.display = 'none';
         liveBadge.style.display = 'flex';
-        liveBadgeText.textContent = 'Прямой эфир';
+        liveBadgeText.textContent = 'Live';
         videoControls.style.display = 'flex';
-        setStatus('online', 'Трансляция активна');
+        setStatus('online', 'Stream active');
 
-        // Диагностика SDP зрителя
         setTimeout(() => {
             try {
                 const pc = call.peerConnection;
@@ -834,7 +884,6 @@ function handleActiveCall(call) {
             } catch (e) {}
         }, 500);
 
-        // Авто-play
         const pp = remoteVideo.play();
         if (pp && pp.catch) {
             pp.catch((err) => {
@@ -843,27 +892,25 @@ function handleActiveCall(call) {
             });
         }
 
-        // Ожидаем метаданные
         remoteVideo.onloadedmetadata = () => {
-            log(`📐 loadedmetadata: ${remoteVideo.videoWidth}×${remoteVideo.videoHeight}`,
+            log(`loadedmetadata: ${remoteVideo.videoWidth}×${remoteVideo.videoHeight}`,
                 remoteVideo.videoWidth > 0 ? 'ok' : 'warn');
         };
 
         closeConnectModal();
-        toast('Соединение установлено!', 'success');
+        toast('Connection established!', 'success');
 
-        // Начинаем периодическую проверку videoWidth
         startVideoCheck();
     });
 
-    call.on('close', () => { log('Соединение закрыто', 'warn'); stopRemoteStream(); });
+    call.on('close', () => { log('Connection closed', 'warn'); stopRemoteStream(); });
     call.on('error', (err) => log('call error: ' + (err.message || err.type), 'error'));
 
     setTimeout(() => {
         if (currentCall === call && !remoteVideo.srcObject) {
-            log('⏱ Поток не получен за 20с', 'error');
-            $('connectStatusBadge').innerText = 'Поток не пришёл. Проверьте код + сеть.';
-            setStatus('error', 'Нет потока');
+            log('⏱ No stream received in 20s', 'error');
+            $('connectStatusBadge').innerText = 'Stream not received. Check code + network.';
+            setStatus('error', 'No stream');
         }
     }, 20000);
 }
@@ -885,26 +932,24 @@ function startVideoCheck() {
         const w = remoteVideo.videoWidth;
         const h = remoteVideo.videoHeight;
         if (w > 0 && h > 0) {
-            log(`✅ Видео декодируется: ${w}×${h}`, 'ok');
+            log(`Video decoding: ${w}×${h}`, 'ok');
             clearInterval(videoCheckInterval);
             videoCheckInterval = null;
         } else if (attempts % 3 === 0) {
-            log(`⚠ videoWidth=0 (попытка ${attempts}) — данные не декодируются`, 'error');
-            // Агрессивный reattach
+            log(`⚠ videoWidth=0 (attempt ${attempts}) — data not decoding`, 'error');
             if (pendingRemoteStream && attempts < 10) {
                 attachStreamToRemote(pendingRemoteStream);
             }
-            // Диагностика getStats
             if (currentCall?.peerConnection) {
                 currentCall.peerConnection.getStats().then(stats => {
                     let hasInbound = false;
                     stats.forEach(r => {
                         if (r.type === 'inbound-rtp' && r.kind === 'video') {
                             hasInbound = true;
-                            log(`📊 inbound-video: framesDecoded=${r.framesDecoded || 0}, bytesReceived=${r.bytesReceived || 0}, frameWidth=${r.frameWidth || 0}`, 'info');
+                            log(`inbound-video: framesDecoded=${r.framesDecoded || 0}, bytesReceived=${r.bytesReceived || 0}, frameWidth=${r.frameWidth || 0}`, 'info');
                         }
                     });
-                    if (!hasInbound) log('📊 НЕТ inbound-video — поток не идёт!', 'error');
+                    if (!hasInbound) log('NO inbound-video — stream not flowing!', 'error');
                 }).catch(() => {});
             }
         }
@@ -924,8 +969,8 @@ function stopRemoteStream() {
     stopStats();
     if (videoCheckInterval) { clearInterval(videoCheckInterval); videoCheckInterval = null; }
     if (dummyAudioCtx) { try { dummyAudioCtx.close(); } catch (e) {} dummyAudioCtx = null; }
-    setStatus('', 'Ожидание действий');
-    toast('Трансляция отключена');
+    setStatus('', 'Waiting for action');
+    toast('Stream disconnected');
 }
 
 $('btnDisconnect').addEventListener('click', stopRemoteStream);
@@ -937,7 +982,7 @@ playOverlay.addEventListener('click', () => {
             playOverlay.classList.remove('show');
             $('iconAudio').className = 'fa-solid fa-volume-high';
             $('iconAudio').style.color = '';
-            log('play по клику — звук включён', 'ok');
+            log('play on click — sound enabled', 'ok');
         }).catch(e => log('play FAIL: ' + e.message, 'error'));
     }
 });
@@ -954,13 +999,13 @@ function openQrScanner() {
                 fillPinInputs(code);
                 connectToCameraHost(code);
             } else {
-                $('scannerStatus').innerText = 'Неверный QR';
+                $('scannerStatus').innerText = 'Invalid QR';
             }
         },
         () => {}
     ).catch((err) => {
         log('QR FAIL: ' + err, 'error');
-        $('scannerStatus').innerText = 'Камера недоступна';
+        $('scannerStatus').innerText = 'Camera unavailable';
     });
 }
 
@@ -979,37 +1024,7 @@ function fillPinInputs(code) {
     });
 }
 
-// ======================== CONTROLS ========================
-btnToggleMic.addEventListener('click', () => {
-    if (!localStream) return;
-    const track = localStream.getAudioTracks()[0];
-    if (track) {
-        isMicMuted = !isMicMuted;
-        track.enabled = !isMicMuted;
-        micText.textContent = isMicMuted ? 'Вкл. микр.' : 'Микрофон';
-        btnToggleMic.style.color = isMicMuted ? '#f44336' : '';
-        log(`Микрофон ${isMicMuted ? 'выкл' : 'вкл'}`, 'info');
-    }
-});
-
-btnToggleCam.addEventListener('click', () => {
-    if (!localStream) return;
-    const track = localStream.getVideoTracks()[0];
-    if (track) {
-        isCamStopped = !isCamStopped;
-        track.enabled = !isCamStopped;
-        camText.textContent = isCamStopped ? 'Вкл. кам.' : 'Камера';
-        btnToggleCam.style.color = isCamStopped ? '#f44336' : '';
-        log(`Камера ${isCamStopped ? 'выкл' : 'вкл'}`, 'info');
-    }
-});
-
-btnSwitchCam.addEventListener('click', async () => {
-    const next = currentFacingMode === 'user' ? 'environment' : 'user';
-    log('Смена камеры на ' + next, 'info');
-    await initLocalCamera(next);
-});
-
+// ======================== REMOTE AUDIO / FULLSCREEN ========================
 $('btnMuteAudio').addEventListener('click', () => {
     remoteVideo.muted = !remoteVideo.muted;
     const icon = $('iconAudio');
@@ -1029,8 +1044,8 @@ $('btnFullscreen').addEventListener('click', () => {
 
 // ======================== INIT ========================
 checkSecureContext();
-log('Инициализация. Протокол: ' + location.protocol, 'info');
-log('remoteVideo изначально muted=true — обход autoplay. Звук включится после клика.', 'info');
+log('Initialization. Protocol: ' + location.protocol, 'info');
+log('remoteVideo initially muted=true — autoplay bypass. Sound enabled after click.', 'info');
 </script>
 </body>
 </html>
