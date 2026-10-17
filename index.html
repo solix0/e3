@@ -332,6 +332,46 @@ let statsInterval = null;
 let statsVisible = false;
 let forceRelayMode = false;
 let videoCheckInterval = null;
+let wakeLock = null; // Screen Wake Lock variable
+
+// ======================== SCREEN WAKE LOCK ========================
+async function requestWakeLock() {
+    if (!('wakeLock' in navigator)) {
+        log('Wake Lock API not supported in this browser', 'warn');
+        return;
+    }
+    try {
+        wakeLock = await navigator.wakeLock.request('screen');
+        log('✓ Screen Wake Lock active — screen will not sleep', 'ok');
+        // При потере блокировки (свернули вкладку) логируем
+        wakeLock.addEventListener('release', () => {
+            log('Screen Wake Lock released', 'info');
+        });
+    } catch (err) {
+        log(`Wake Lock error: ${err.name} — ${err.message}`, 'warn');
+    }
+}
+
+function releaseWakeLock() {
+    if (wakeLock !== null) {
+        wakeLock.release().then(() => {
+            wakeLock = null;
+            log('Wake Lock released by user action', 'info');
+        });
+    }
+}
+
+// Автоматически запрашиваем снова, если вкладка стала видимой
+document.addEventListener('visibilitychange', async () => {
+    if (wakeLock !== null && document.visibilityState === 'visible') {
+        try {
+            wakeLock = await navigator.wakeLock.request('screen');
+            log('Wake Lock re-acquired on visibility change', 'ok');
+        } catch (e) {
+            log('Wake Lock re-acquire failed: ' + e.message, 'warn');
+        }
+    }
+});
 
 // ======================== ICE ========================
 const TURN_SERVERS = [
@@ -626,6 +666,9 @@ btnStartHost.addEventListener('click', async () => {
         return;
     }
 
+    // Request Wake Lock when user starts sharing camera
+    await requestWakeLock();
+
     isHostMode = true;
     const code = Math.floor(1000 + Math.random() * 9000).toString();
     const peerId = 'cam-' + code;
@@ -742,6 +785,8 @@ async function tryPrioritizeH264(pc) {
 btnOpenConnect.addEventListener('click', () => {
     $('connectModalOverlay').classList.add('active');
     clearPinInputs();
+    // Request wake lock when viewer opens connection dialog
+    requestWakeLock();
 });
 
 function closeConnectModal() {
@@ -969,6 +1014,8 @@ function stopRemoteStream() {
     stopStats();
     if (videoCheckInterval) { clearInterval(videoCheckInterval); videoCheckInterval = null; }
     if (dummyAudioCtx) { try { dummyAudioCtx.close(); } catch (e) {} dummyAudioCtx = null; }
+    // Release wake lock on disconnect
+    releaseWakeLock();
     setStatus('', 'Waiting for action');
     toast('Stream disconnected');
 }
@@ -990,6 +1037,8 @@ playOverlay.addEventListener('click', () => {
 // ======================== QR SCANNER ========================
 function openQrScanner() {
     $('qrScannerModalOverlay').classList.add('active');
+    // Request wake lock when QR scanner opens
+    requestWakeLock();
     html5QrCode = new Html5Qrcode('qrReader');
     html5QrCode.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 200, height: 200 } },
         (decodedText) => {
@@ -1014,6 +1063,10 @@ function closeQrScanner() {
     if (html5QrCode) {
         html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => {});
         html5QrCode = null;
+    }
+    // Release wake lock when QR scanner closes (unless streaming is active)
+    if (!currentCall && !localStream) {
+        releaseWakeLock();
     }
 }
 
